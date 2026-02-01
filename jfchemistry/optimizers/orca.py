@@ -14,14 +14,14 @@ from pymatgen.core.structure import Molecule
 
 from jfchemistry.calculators.orca.orca_calculator import ORCACalculator
 from jfchemistry.calculators.orca.orca_keywords import OptModelType
-from jfchemistry.core.makers.base_maker import JFChemistryBaseMaker
+from jfchemistry.core.makers.pymatgen_maker import PymatGenMaker
 from jfchemistry.core.properties import Properties
 from jfchemistry.optimizers.base import GeometryOptimization
 
 
 @dataclass
 class ORCAOptimizer[InputType: Molecule, OutputType: Molecule](
-    ORCACalculator, GeometryOptimization, JFChemistryBaseMaker[InputType, OutputType]
+    ORCACalculator, GeometryOptimization, PymatGenMaker[InputType, OutputType]
 ):
     """Optimize molecular structures using ORCA DFT calculator.
 
@@ -40,16 +40,16 @@ class ORCAOptimizer[InputType: Molecule, OutputType: Molecule](
     _basename: str = "orca_optimizer"
 
     def _operation(
-        self, structure: InputType, **kwargs
+        self, input: InputType, **kwargs
     ) -> tuple[OutputType | list[OutputType], Properties | list[Properties]]:
         """Optimize a molecule using ORCA DFT calculator."""
         # Write to XYZ file
-        structure.to("input.xyz", fmt="xyz")
+        input.to("input.xyz", fmt="xyz")
         # Get the default calculator SK_list
         sk_list = super()._set_keywords()
         # Add the optimizer keywords
         for opt_kw in self.opt or []:
-            sk_list.append(getattr(Opt, opt_kw))  # type: ignore
+            sk_list.append(getattr(Opt, opt_kw))
         # Make the calculator
         calc = Calculator(basename=self._basename, working_dir=Path("."))
         calc.structure = Structure.from_xyz("input.xyz")

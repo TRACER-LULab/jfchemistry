@@ -9,17 +9,17 @@ from dataclasses import dataclass
 from typing import Literal, cast
 
 from pymatgen.core.structure import Molecule
+from pymatgen.io.xyz import XYZ
 
 from jfchemistry.calculators.crest import CRESTCalculator
-from jfchemistry.core import PymatgenBaseMaker
+from jfchemistry.core.makers import PymatGenMaker
 from jfchemistry.core.properties import Properties
 from jfchemistry.modification.deprotonation.base import DeprotonationMaker
-from jfchemistry.modification.molbar_screening import molbar_screening
 
 
 @dataclass
 class CRESTDeprotonation[InputType: Molecule, OutputType: Molecule](
-    DeprotonationMaker, CRESTCalculator, PymatgenBaseMaker[InputType, OutputType]
+    DeprotonationMaker, CRESTCalculator, PymatGenMaker[InputType, OutputType]
 ):
     """Generate deprotonated structures using CREST.
 
@@ -64,7 +64,7 @@ class CRESTDeprotonation[InputType: Molecule, OutputType: Molecule](
         self._commands.append("--newversion")
 
     def _operation(
-        self, structure: InputType
+        self, input: InputType, **kwargs
     ) -> tuple[OutputType | list[OutputType], Properties | list[Properties]]:
         """Generate deprotonated structures using CREST.
 
@@ -73,8 +73,9 @@ class CRESTDeprotonation[InputType: Molecule, OutputType: Molecule](
         GFN2-xTB with Wiberg bond order analysis.
 
         Args:
-            structure: Input molecular structure with 3D coordinates. The
+            input: Input molecular structure with 3D coordinates. The
                 molecule's charge is used for the CREST calculation.
+            **kwargs: Additional kwargs to pass to the operation.
 
         Returns:
             Tuple containing:
@@ -89,9 +90,9 @@ class CRESTDeprotonation[InputType: Molecule, OutputType: Molecule](
             >>> structures, props = deprot.operation(ethane) # doctest: +SKIP
             >>> print(f"Generated {len(structures)} deprotonated structures") # doctest: +SKIP
         """
-        structure.to("input.xyz", fmt="xyz")
-        if self.charge is None and structure.charge is not None:
-            self.charge = structure.charge
+        input.to("input.xyz", fmt="xyz")
+        if self.charge is None and input.charge is not None:
+            self.charge = input.charge
         super()._make_dict()
         super()._write_toml()
         self._make_commands()
@@ -100,7 +101,7 @@ class CRESTDeprotonation[InputType: Molecule, OutputType: Molecule](
             raise FileNotFoundError(
                 "No deprotonated structures found. Please check your CREST settings and log file."
             ) from None
-        molecules = molbar_screening(self._output_filename, self.threads)
+        molecules = XYZ.from_file(self._output_filename).all_molecules
         for i, deprotonated_structure in enumerate(molecules):
             molecules[i] = deprotonated_structure.set_charge_and_spin(
                 charge=deprotonated_structure.charge - 1,

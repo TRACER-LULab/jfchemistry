@@ -181,7 +181,11 @@ pyrightconfig.json
 .pixi
 
 # Examples
-examples/*.yaml*
 
+# Ignore everything in examples folder
+examples/**/*
+
+# But keep Python files
+!examples/**/*.py
 # Environment
 .env

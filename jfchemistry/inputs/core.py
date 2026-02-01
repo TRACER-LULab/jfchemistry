@@ -5,23 +5,18 @@ chemical identifier formats including SMILES and PubChem compound IDs.
 """
 
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Annotated
 
 from jobflow.core.job import Response
-from jobflow.core.maker import Maker
-from pydantic import BaseModel, Field, create_model
 from rdkit.Chem import SaltRemover, rdchem, rdmolfiles, rdmolops
 
-if TYPE_CHECKING:
-    from pydantic.fields import _FieldInfoAsDict
-
+from jfchemistry.core.makers.core_maker import CoreMaker
 from jfchemistry.core.outputs import Output
 from jfchemistry.core.properties import Properties
 from jfchemistry.core.structures import RDMolMolecule
 
 
 @dataclass
-class MoleculeInput(Maker):
+class MoleculeInput(CoreMaker):
     """Base class for molecule input from chemical identifiers.
 
     This abstract class provides common functionality for creating RDKit molecules
@@ -53,34 +48,6 @@ class MoleculeInput(Maker):
     )
     _output_model: type[Output] = Output
     _properties_model: type[Properties] = Properties
-
-    def _make_output_model(self, properties_model: type[BaseModel]):
-        """Make a properties model for the job."""
-        fields = {}
-        for f_name, f_info in self._output_model.model_fields.items():
-            f_dict: "_FieldInfoAsDict" = f_info.asdict()
-            annotation = f_dict["annotation"]
-            if f_name == "properties":
-                annotation = properties_model | list[properties_model]  # type: ignore
-
-            fields[f_name] = (
-                Annotated[
-                    annotation | None,  # type: ignore
-                    *f_dict["metadata"],  # type: ignore
-                    Field(**f_dict["attributes"]),
-                ],  # type: ignore
-                None,
-            )
-
-        self._output_model = create_model(
-            f"{self._output_model.__name__}",
-            __base__=self._output_model,
-            **fields,
-        )
-
-    def __post_init__(self):
-        """Post-initialization hook to make the output model."""
-        self._make_output_model(self._properties_model)
 
     def _get_structure(self, input: int | str) -> RDMolMolecule:
         """Retrieve or parse structure from the input identifier.
@@ -124,7 +91,7 @@ class MoleculeInput(Maker):
             '[H]OC([H])([H])C([H])([H])[H]'
         """
         if self.remove_salts:
-            mol = SaltRemover.SaltRemover().StripMol(mol)  # type: ignore[no-untyped-call]
+            mol = SaltRemover.SaltRemover().StripMol(mol)
             if mol is None or mol.GetNumAtoms() == 0:
                 raise ValueError("No molecule returned after removing salts.")
         if self.add_hydrogens:

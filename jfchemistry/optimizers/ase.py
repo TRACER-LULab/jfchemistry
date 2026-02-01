@@ -13,14 +13,14 @@ from ase.filters import Filter
 from pymatgen.core.structure import Molecule, Structure
 
 from jfchemistry.calculators.ase.ase_calculator import ASECalculator
-from jfchemistry.core.makers import SingleJFChemistryMaker
+from jfchemistry.core.makers import PymatGenMaker
 from jfchemistry.core.properties import Properties
 from jfchemistry.optimizers.base import GeometryOptimization
 
 
 @dataclass
 class ASEOptimizer[InputType: Structure | Molecule, OutputType: Structure | Molecule](
-    SingleJFChemistryMaker[InputType, OutputType], GeometryOptimization
+    PymatGenMaker[InputType, OutputType], GeometryOptimization
 ):
     """Base class for geometry optimization using ASE optimizers.
 
@@ -96,7 +96,7 @@ class ASEOptimizer[InputType: Structure | Molecule, OutputType: Structure | Mole
         super().__post_init__()
 
     def _operation(
-        self, structure: InputType, **kwargs
+        self, input: InputType, **kwargs
     ) -> tuple[OutputType | list[OutputType], Properties | list[Properties]]:
         """Optimize molecular structure using ASE.
 
@@ -108,7 +108,7 @@ class ASEOptimizer[InputType: Structure | Molecule, OutputType: Structure | Mole
         5. Extracting properties from the calculation
 
         Args:
-            structure: Input molecular structure with 3D coordinates.
+            input: Input molecular structure with 3D coordinates.
             **kwargs: Additional kwargs to pass to the operation.
 
         Returns:
@@ -124,17 +124,17 @@ class ASEOptimizer[InputType: Structure | Molecule, OutputType: Structure | Mole
             >>> opt = TBLiteOptimizer(optimizer="LBFGS", fmax=0.01) # doctest: +SKIP
             >>> structures, properties = opt.operation(ethane) # doctest: +SKIP
         """
-        atoms = structure.to_ase_atoms()
-        charge = int(structure.charge)
-        if type(structure) is Molecule:
-            spin_multiplicity = int(structure.spin_multiplicity)
+        atoms = input.to_ase_atoms()
+        charge = int(input.charge)
+        if type(input) is Molecule:
+            spin_multiplicity = int(input.spin_multiplicity)
         else:
             spin_multiplicity = 1
         atoms = self.calculator._set_calculator(
             atoms, charge=charge, spin_multiplicity=spin_multiplicity
         )
 
-        if type(structure) is Structure and self.unit_cell_optimizer is not None:
+        if type(input) is Structure and self.unit_cell_optimizer is not None:
             opt_atoms = getattr(filters, self.unit_cell_optimizer)(atoms)
         else:
             opt_atoms = atoms
@@ -142,7 +142,7 @@ class ASEOptimizer[InputType: Structure | Molecule, OutputType: Structure | Mole
         opt_func = getattr(ase.optimize, self.optimizer)
         opt = opt_func(opt_atoms, logfile=self.logfile, trajectory=self.trajectory)
         opt.run(self.fmax, self.steps)
-        if type(structure) is Structure:
+        if type(input) is Structure:
             if self.unit_cell_optimizer is not None and isinstance(opt_atoms, Filter):
                 opt_atoms = opt_atoms.atoms
 
@@ -150,11 +150,11 @@ class ASEOptimizer[InputType: Structure | Molecule, OutputType: Structure | Mole
         from ase import io
 
         io.write("opt.cif", opt_atoms)
-        if isinstance(structure, Structure):
+        if isinstance(input, Structure):
             opt_structure = Structure.from_ase_atoms(opt_atoms)
-        elif isinstance(structure, Molecule):
+        elif isinstance(input, Molecule):
             opt_structure = Molecule.from_ase_atoms(opt_atoms)
         else:
-            raise ValueError(f"Unsupported structure type: {type(structure)}")
+            raise ValueError(f"Unsupported structure type: {type(input)}")
 
         return cast("OutputType", opt_structure), properties

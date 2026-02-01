@@ -1,18 +1,21 @@
 """Base class for energy filters."""
 
 from dataclasses import dataclass, field
+from typing import cast
 
 import numpy as np
 from pymatgen.core.structure import Molecule, Structure
 
 from jfchemistry import Q_, ureg
-from jfchemistry.core.makers import EnsembleMaker
+from jfchemistry.core.makers import PymatGenMaker
 from jfchemistry.core.properties import Properties
-from jfchemistry.filters.base import PropertyEnsembleCollection
+from jfchemistry.filters.base import Filter
 
 
 @dataclass
-class EnergyFilter[T: Structure | Molecule](EnsembleMaker[T]):
+class EnergyFilter[InputType: Structure | Molecule, OutputType: Structure | Molecule](
+    Filter, PymatGenMaker[InputType, OutputType]
+):
     """Base class for energy filters.
 
     Attributes:
@@ -24,15 +27,16 @@ class EnergyFilter[T: Structure | Molecule](EnsembleMaker[T]):
     threshold: float = field(
         default=0.0, metadata={"description": "The threshold for the energy filter [kcal/mol]."}
     )
-    _ensemble_type = T | list[T]
-    _ensemble_collection_type = _ensemble_type | list[_ensemble_type]
 
-    def _operation(
-        self,
-        ensemble: _ensemble_collection_type,  # type: ignore[assignment]
-        properties: PropertyEnsembleCollection,
-    ) -> tuple[_ensemble_collection_type, PropertyEnsembleCollection]:  # type: ignore[misc]
+    def __post_init__(self):
+        """Ensure _ensemble is set to True for ensemble processing."""
+        super().__post_init__()
+        self._ensemble = True
+
+    def _operation(self, input: InputType, **kwargs) -> tuple[OutputType, Properties]:
         """Perform the energy filter operation on an ensemble."""
+        assert "properties" in kwargs, "Properties are required for the energy filter."
+        properties = kwargs["properties"]
         parsed_properties = [
             Properties.model_validate(property, extra="allow", strict=False)
             for property in properties
@@ -61,11 +65,11 @@ class EnergyFilter[T: Structure | Molecule](EnsembleMaker[T]):
         delta_energy = energies - minimum_energy
         delta_energy = delta_energy.to("kcal_per_mol")
         filtered_indices = np.where(delta_energy <= threshold)
-        filtered_ensemble = np.array(ensemble)[filtered_indices].tolist()
+        filtered_ensemble = np.array(input)[filtered_indices].tolist()
         filtered_ensemble = [
-            type(ensemble[idx]).from_sites(atoms) for idx, atoms in enumerate(filtered_ensemble)
+            type(input[idx]).from_sites(atoms) for idx, atoms in enumerate(filtered_ensemble)
         ]
         filtered_properties = np.array(parsed_properties)[filtered_indices]
-        print("Removed", len(ensemble) - len(filtered_ensemble), "structures")
-        print("Kept", len(filtered_ensemble), "structures")
-        return filtered_ensemble, filtered_properties.tolist()
+        return cast("OutputType", filtered_ensemble), cast(
+            "Properties", filtered_properties.tolist()
+        )

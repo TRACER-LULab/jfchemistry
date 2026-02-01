@@ -6,11 +6,9 @@ generation methods from molecular representations.
 
 from dataclasses import dataclass
 
-from jfchemistry.core.makers.single_rdmolecule import SingleRDMoleculeMaker
-
 
 @dataclass
-class StructureGeneration(SingleRDMoleculeMaker):
+class StructureGeneration:
     """Base class for generating 3D structures from RDKit molecules.
 
     This abstract class defines the interface for structure generation

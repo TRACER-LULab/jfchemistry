@@ -5,13 +5,13 @@ ASE (Atomic Simulation Environment) optimizers with various calculators.
 """
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import Literal, cast
 
 import torch_sim as ts
 from pymatgen.core.structure import Molecule, Structure
 
 from jfchemistry.calculators.torchsim.torchsim_calculator import TorchSimCalculator
-from jfchemistry.core.makers.single_maker import SingleJFChemistryMaker
+from jfchemistry.core.makers.pymatgen_maker import PymatGenMaker
 
 # from jfchemistry.core.makers.single_structure_molecule import SingleStructureMoleculeMaker
 from jfchemistry.core.properties import Properties
@@ -20,7 +20,7 @@ from jfchemistry.optimizers.base import GeometryOptimization
 
 @dataclass
 class TorchSimOptimizer[InputType: Molecule | Structure, OutputType: Molecule | Structure](
-    SingleJFChemistryMaker[InputType, OutputType], GeometryOptimization
+    PymatGenMaker[InputType, OutputType], GeometryOptimization
 ):
     """Base class for single point energy calculations using TorchSim calculators.
 
@@ -67,8 +67,13 @@ class TorchSimOptimizer[InputType: Molecule | Structure, OutputType: Molecule | 
         },
     )
 
+    def __post_init__(self):
+        """Post-initialization hook."""
+        self.name = f"{self.name} with {self.calculator.name}"
+        super().__post_init__()
+
     def _operation(
-        self, structure: InputType, **kwargs
+        self, input: InputType, **kwargs
     ) -> tuple[OutputType | list[OutputType], Properties | list[Properties]]:
         """Optimize molecular structure using ASE.
 
@@ -80,7 +85,8 @@ class TorchSimOptimizer[InputType: Molecule | Structure, OutputType: Molecule | 
         5. Extracting properties from the calculation
 
         Args:
-            structure: Input molecular structure with 3D coordinates.
+            input: Input molecular structure with 3D coordinates.
+            **kwargs: Additional kwargs to pass to the operation.
 
         Returns:
             Tuple containing:
@@ -97,14 +103,14 @@ class TorchSimOptimizer[InputType: Molecule | Structure, OutputType: Molecule | 
         """
         optimizer = getattr(ts.Optimizer, self.optimizer.lower().replace(" ", "_"))
         model = self.calculator._get_model()
-        structure.to_ase_atoms().write("initial_structure.xyz")
+        input.to_ase_atoms().write("initial_structure.xyz")
         final_state = ts.optimize(
-            system=structure.to_ase_atoms(),
+            system=input.to_ase_atoms(),
             model=model,
             optimizer=optimizer,
         )
         final_atoms = final_state.to_atoms()[0]
-        final_structure = type(structure).from_ase_atoms(final_atoms)
+        final_structure = type(input).from_ase_atoms(final_atoms)
         properties = self.calculator._get_properties(final_structure)
         final_structure.to_ase_atoms().write("final_structure.xyz")
-        return final_structure, properties
+        return cast("OutputType", final_structure), properties

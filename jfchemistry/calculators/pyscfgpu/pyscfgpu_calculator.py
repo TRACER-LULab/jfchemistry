@@ -51,11 +51,15 @@ class PySCFGPUCalculator(WavefunctionCalculator, MSONable):
         name: Name of the calculator (default: "PySCF GPU Calculator").
         cores: The number of CPU cores to use for parallel calculations (default: 1).
         basis_set: The basis set to use for the calculation (default: None).
-        xc_functional: The exchange-correlation functional to use for the calculation (default: None).
+        xc_functional: The exchange-correlation functional to use for \
+            the calculation (default: None).
         dispersion_correction: The dispersion correction to use for the calculation (default: None).
-        participation_ratio: Whether to calculate the per-atom participation ratio for a series of molecular orbitals (default: False).
-        homo_threshold: The threshold energies from the HOMO orbital to be considered for the participation ratio calculation in eV (default: None).
-        lumo_threshold: The threshold energies from the LUMO orbital to be considered for the participation ratio calculation in eV (default: None).
+        participation_ratio: Whether to calculate the per-atom participation ratio for a series of \
+            molecular orbitals (default: False).
+        homo_threshold: The threshold energies from the HOMO orbital to be considered for the \
+            participation ratio calculation in eV (default: None).
+        lumo_threshold: The threshold energies from the LUMO orbital to be considered for the \
+            participation ratio calculation in eV (default: None).
     """
 
     name: str = "PySCF GPU Calculator"
@@ -115,7 +119,7 @@ class PySCFGPUCalculator(WavefunctionCalculator, MSONable):
                 homo_energy = homo_energies[-1]
                 threshold = self.homo_threshold / units.Hartree
                 homo_orbitals = mf.mo_coeff[:, homo_mask]  # type: ignore
-                homo_orbitals = homo_orbitals[:, homo_energies + threshold >= homo_energy]  # type: ignore
+                homo_orbitals = homo_orbitals[:, homo_energies + threshold >= homo_energy]
                 for C_i in homo_orbitals.T:
                     for i in range(mf.mol.natm):
                         _, _, ao_start, ao_end = mf.mol.aoslice_by_atom()[i, :]
@@ -124,12 +128,12 @@ class PySCFGPUCalculator(WavefunctionCalculator, MSONable):
                     P_i = B @ S @ C_i
                     P_homo.append(P_i)
             if self.lumo_threshold is not None:
-                lumo_mask = mf.mo_occ == 0.0  # type: ignore
+                lumo_mask = mf.mo_occ == 0.0
                 lumo_energies = mf.mo_energy[lumo_mask]  # type: ignore
                 lumo_energy = lumo_energies[0]
                 threshold = self.lumo_threshold / units.Hartree
                 lumo_orbitals = mf.mo_coeff[:, lumo_mask]  # type: ignore
-                lumo_orbitals = lumo_orbitals[:, lumo_energies - threshold <= lumo_energy]  # type: ignore
+                lumo_orbitals = lumo_orbitals[:, lumo_energies - threshold <= lumo_energy]
                 for C_i in lumo_orbitals.T:
                     for i in range(mf.mol.natm):
                         _, _, ao_start, ao_end = mf.mol.aoslice_by_atom()[i, :]
@@ -141,8 +145,12 @@ class PySCFGPUCalculator(WavefunctionCalculator, MSONable):
             total_energy=SystemProperty(value=total_energy * ureg.hartree, name="Total Energy")
         )
         atomic_properties = PySCFAtomicProperties(
-            homo_participation_ratio=AtomicProperty(value=P_homo, name="HOMO Participation Ratio"),
-            lumo_participation_ratio=AtomicProperty(value=P_lumo, name="LUMO Participation Ratio"),
+            homo_participation_ratio=AtomicProperty(value=P_homo, name="HOMO Participation Ratio")
+            if self.participation_ratio
+            else None,
+            lumo_participation_ratio=AtomicProperty(value=P_lumo, name="LUMO Participation Ratio")
+            if self.participation_ratio
+            else None,
         )
         properties = PySCFProperties(system=system_properties, atomic=atomic_properties)
         return properties

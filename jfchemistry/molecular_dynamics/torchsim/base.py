@@ -17,7 +17,7 @@ from torch_sim.units import UnitConversion as Uc
 
 from jfchemistry import ureg
 from jfchemistry.calculators.torchsim.torchsim_calculator import TorchSimCalculator
-from jfchemistry.core.makers.single_maker import SingleJFChemistryMaker
+from jfchemistry.core.makers import PymatGenMaker
 from jfchemistry.core.properties import Properties, PropertyClass, SystemProperty
 from jfchemistry.molecular_dynamics.base import MolecularDynamics, MolecularDynamicsOutput
 
@@ -42,7 +42,7 @@ class TSMDProperties(Properties):
 
 @dataclass
 class TorchSimMolecularDynamics[InputType: Molecule | Structure, OutputType: Molecule | Structure](
-    SingleJFChemistryMaker[InputType, OutputType], MolecularDynamics
+    PymatGenMaker[InputType, OutputType], MolecularDynamics
 ):
     """Base class for single point energy calculations using TorchSim calculators.
 
@@ -134,7 +134,7 @@ class TorchSimMolecularDynamics[InputType: Molecule | Structure, OutputType: Mol
         """Post initialization hook."""
         self.init_kwargs = {}
         self.step_kwargs = {}
-        self._make_output_model(self._properties_model)
+        super().__post_init__()
 
     def _setup_dicts(self, model: ModelInterface):
         """Setup the dictionaries for the integrator."""
@@ -231,7 +231,7 @@ class TorchSimMolecularDynamics[InputType: Molecule | Structure, OutputType: Mol
         return log_dict
 
     def _operation(
-        self, structure: InputType
+        self, input: InputType, **kwargs
     ) -> tuple[OutputType | list[OutputType], Properties | list[Properties]]:
         """Optimize molecular structure using ASE.
 
@@ -243,17 +243,18 @@ class TorchSimMolecularDynamics[InputType: Molecule | Structure, OutputType: Mol
         5. Extracting properties from the calculation
 
         Args:
-            structure: Input molecular structure with 3D coordinates.
+            input: Input molecular structure with 3D coordinates.
+            **kwargs: Additional kwargs to pass to the operation.
 
         Returns:
             Tuple containing:
                 - Optimized Pymatgen Molecule
                 - Dictionary of computed properties from calculator
         """
-        if not isinstance(structure, list):
-            structure_list: list[InputType] = [structure]
+        if not isinstance(input, list):
+            structure_list: list[InputType] = [input]
         else:
-            structure_list = structure
+            structure_list = input
         model = self.calculator._get_model()
         dtype = model.dtype
         device = model.device
@@ -315,7 +316,7 @@ class TorchSimMolecularDynamics[InputType: Molecule | Structure, OutputType: Mol
         if trajectory_reporter:
             trajectory_reporter.finish()
         if isinstance(batch_iterator, ts.BinningAutoBatcher):
-            reordered_states = batch_iterator.restore_original_order(_final_states)
+            reordered_states = batch_iterator.restore_original_order(_final_states)  # type: ignore
             final_states = [ts.concatenate_states(reordered_states)]  # type: ignore
         else:
             final_states = _final_states

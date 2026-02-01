@@ -22,8 +22,10 @@ class TorchSimMolecularDynamicsNPTNoseHoover(TorchSimMolecularDynamics):
 
     Attributes:
         name: Name of the calculator (default: "FairChem TorchSim Single Point Calculator").
-        b_tau: Barostat time constant controlling how quickly the system responds to pressure differences.
-        t_tau: Thermostat time constant controlling how quickly the system responds to temperature differences.
+        b_tau: Barostat time constant controlling how quickly the system responds to pressure\
+             differences.
+        t_tau: Thermostat time constant controlling how quickly the system responds to temperature \
+            differences.
         external_pressure: External pressure applied to the system [atm] (default: 1 atm).
         chain_length: Number of Nose-Hoover chains.
         chain_steps: Number of steps per chain.

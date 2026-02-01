@@ -99,7 +99,7 @@ class AimNet2Calculator(ASECalculator, MachineLearnedInteratomicPotentialCalcula
             >>> energy = atoms.get_potential_energy() # doctest: +SKIP
         """
         try:
-            from aimnet.calculators import AIMNet2ASE  # type: ignore
+            from aimnet.calculators import AIMNet2ASE
         except ImportError as e:
             raise ImportError(
                 "The 'aimnet' package is required to use AimNet2Calculator but is not available. "
@@ -112,7 +112,7 @@ class AimNet2Calculator(ASECalculator, MachineLearnedInteratomicPotentialCalcula
         atoms.calc = AIMNet2ASE(self.model, charge, spin_multiplicity)
 
         aimnet2_atomtypes = [1, 6, 7, 8, 9, 17, 16, 5, 14, 15, 33, 34, 35, 53]
-        atomic_nums = atoms.get_atomic_numbers()  # type: ignore
+        atomic_nums = atoms.get_atomic_numbers()
         if not all(atom in aimnet2_atomtypes for atom in atomic_nums):
             raise ValueError(
                 f"Unsupport atomtype by AimNet2. Supported atom types are {aimnet2_atomtypes}"
@@ -141,7 +141,7 @@ class AimNet2Calculator(ASECalculator, MachineLearnedInteratomicPotentialCalcula
             >>> atoms.get_potential_energy()  # Trigger calculation # doctest: +SKIP
             >>> props = calc.get_properties(atoms) # doctest: +SKIP
         """
-        energy = atoms.get_total_energy()  # type: ignore
+        energy = atoms.get_total_energy()
         system_property = AimNet2SystemProperties(
             total_energy=SystemProperty(
                 name="Total Energy",
@@ -150,7 +150,7 @@ class AimNet2Calculator(ASECalculator, MachineLearnedInteratomicPotentialCalcula
             ),
         )
 
-        charge = atoms.get_charges()  # type: ignore
+        charge = atoms.get_charges()
         atomic_property = AimNet2AtomicProperties(
             aimnet2_partial_charges=AtomicProperty(
                 name="AimNet2 Partial Charges",

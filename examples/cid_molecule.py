@@ -1,93 +1,62 @@
 """Example of using the PubChemCID node to get a molecule from PubChem."""
 
-import inspect
-from importlib import import_module
-from pkgutil import walk_packages
-
 from jobflow.core.flow import Flow
 from jobflow.managers.local import run_locally
 
-from jfchemistry.calculators.ase.ase_calculator import ASECalculator
+from jfchemistry.calculators.ase import TBLiteCalculator
+from jfchemistry.calculators.torchsim import OrbCalculator
+from jfchemistry.conformers import MMMCConformers
+from jfchemistry.filters import EnergyFilter, PrismPrunerFilter
 from jfchemistry.generation import RDKitGeneration
 from jfchemistry.inputs import Smiles
-from jfchemistry.single_point import ASESinglePoint
-
-
-# Dynamically discover all Calculator subclasses
-def discover_calculators():
-    """Discover all concrete Calculator subclasses from the calculators module."""
-    calculators = []
-    # Abstract base classes to exclude
-    abstract_class = ASECalculator
-
-    # Import the calculators module to ensure all subclasses are registered
-    calculators_module = import_module("jfchemistry.calculators.ase")
-    imported_modules = {calculators_module}
-
-    # Walk through all submodules to ensure they're imported
-    for _, modname, _ in walk_packages(
-        calculators_module.__path__, calculators_module.__name__ + "."
-    ):
-        try:
-            mod = import_module(modname)
-            imported_modules.add(mod)
-        except (ImportError, AttributeError):
-            continue
-
-    # Find all Calculator subclasses across all imported modules
-    seen_classes = set()
-    for module in imported_modules:
-        for _, obj in inspect.getmembers(module, inspect.isclass):
-            print("--------------------------------")
-            print(obj.__name__)
-            print(issubclass(obj, ASECalculator))
-            print(obj is not ASECalculator)
-            print("--------------------------------")
-            if (
-                obj not in seen_classes
-                and issubclass(obj, ASECalculator)
-                and obj is not ASECalculator
-            ):
-                print(obj.__name__)
-                # Check if it's a concrete class (not abstract base)
-                if not inspect.isabstract(obj):
-                    calculators.append(obj)
-                    seen_classes.add(obj)
-
-    return calculators
-
+from jfchemistry.modification.deprotonation import CRESTDeprotonation
+from jfchemistry.modification.protonation import CRESTProtonation
+from jfchemistry.optimizers import ASEOptimizer, TorchSimOptimizer
+from jfchemistry.single_point import PySCFGPUSinglePoint
 
 # Get all calculator classes
-calculator_classes = discover_calculators()
-print(calculator_classes)
 pubchem_cid = Smiles().make("C(CO)Cl")
 
-generate_structure = RDKitGeneration(num_conformers=1).make(pubchem_cid.output.structure)
+generate_structure = RDKitGeneration(num_conformers=2).make(pubchem_cid.output.structure)
 
-# Instantiate calculators (with default parameters where possible)
-calculators = []
-for calc_class in calculator_classes:
-    try:
-        calculators.append(calc_class())
-    except (TypeError, ValueError) as e:
-        # Skip calculators that can't be instantiated with defaults
-        print(f"Skipping {calc_class.__name__}: {e}")
-        continue
+deprotonate = CRESTDeprotonation().make(generate_structure.output.structure[0])
+protonate = CRESTProtonation().make(deprotonate.output.structure[0])
+mmmc_conformer = MMMCConformers(optimizer=ASEOptimizer(calculator=TBLiteCalculator())).make(
+    generate_structure.output.structure[0]
+)
 
-# Create optimizer jobs for each calculator
-opts = []
-for calculator in calculators:
-    opt = ASESinglePoint(
-        calculator=calculator,
-    ).make(generate_structure.output.structure)
-    opts.append(opt)
+prism_pruner = PrismPrunerFilter(energy_threshold=2.0).make(
+    mmmc_conformer.output.structure, properties=mmmc_conformer.output.properties
+)
 
+energy_filter = EnergyFilter(threshold=0.1).make(
+    prism_pruner.output.structure, properties=prism_pruner.output.properties
+)
+
+opt_ase = ASEOptimizer(
+    calculator=TBLiteCalculator(),
+).make(energy_filter.output.structure)
+
+opt_torchsim = TorchSimOptimizer(
+    calculator=OrbCalculator(model="orb_v3_direct_20_omat"),
+).make(opt_ase.output.structure)
+
+sp = PySCFGPUSinglePoint(xc_functional="B3LYP", basis_set="def2-svp").make(
+    protonate.output.structure[0]
+)
 
 flow = Flow(
     [
         pubchem_cid,
         generate_structure,
-        *opts,
+        deprotonate,
+        protonate,
+        prism_pruner,
+        energy_filter,
+        mmmc_conformer,
+        opt_ase,
+        opt_torchsim,
+        sp,
     ]
 )
 

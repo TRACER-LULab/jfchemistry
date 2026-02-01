@@ -7,18 +7,19 @@ and GFN-xTB methods.
 
 import subprocess
 from dataclasses import dataclass, field
-from typing import Any, Literal, Optional, Union
+from typing import Any, Literal, Optional, Union, cast
 
 import tomli_w
-from pydantic import BaseModel
 from pymatgen.core.structure import Molecule
 from pymatgen.io.xyz import XYZ
 
 from jfchemistry.conformers.base import ConformerGeneration
+from jfchemistry.core.input_types import RecursiveMoleculeList
+from jfchemistry.core.makers.pymatgen_maker import PymatGenMaker
 from jfchemistry.core.properties import Properties
 
 
-class CRESTProperties(BaseModel):
+class CRESTProperties(Properties):
     """Properties of the CREST conformer generation."""
 
 
@@ -75,7 +76,9 @@ type SolvationType = Union[
 
 
 @dataclass
-class CRESTConformers(ConformerGeneration):
+class CRESTConformers[InputType: Molecule, OutputType: RecursiveMoleculeList](
+    ConformerGeneration, PymatGenMaker[InputType, OutputType]
+):
     """CREST conformer generation using metadynamics sampling.
 
     CREST (Conformer-Rotamer Ensemble Sampling Tool) performs automated
@@ -339,8 +342,8 @@ class CRESTConformers(ConformerGeneration):
         #     shutil.rmtree(tmp_dir)
 
     def _operation(
-        self, molecule: Molecule
-    ) -> tuple[Molecule | list[Molecule], Properties | list[Properties]]:
+        self, input: InputType, **kwargs
+    ) -> tuple[OutputType | list[OutputType], Properties | list[Properties]]:
         """Generate conformers using CREST metadynamics search.
 
         Performs a conformational search using CREST with the configured
@@ -348,9 +351,10 @@ class CRESTConformers(ConformerGeneration):
         a temporary directory and returns the unique low-energy conformers.
 
         Args:
-            molecule: Input molecular structure with 3D coordinates. The
+            input: Input molecular structure with 3D coordinates. The
                 structure's charge property is used if calculation charges
                 are not explicitly set.
+            **kwargs: Additional kwargs to pass to the operation.
 
         Returns:
             Tuple containing:
@@ -367,7 +371,7 @@ class CRESTConformers(ConformerGeneration):
             >>> conformers, props = gen.operation(mol) # doctest: +SKIP
         """
         # Write structures to sdf file
-        molecule.to(self._xyz_filename, fmt="xyz")
+        input.to(self._xyz_filename, fmt="xyz")
 
         self.input = self._xyz_filename
 
@@ -378,4 +382,4 @@ class CRESTConformers(ConformerGeneration):
 
         conformers = XYZ.from_file("crest_conformers.xyz").all_molecules
 
-        return (conformers, [Properties() for _ in conformers])
+        return (cast("list[OutputType]", conformers), self._properties_model())

@@ -272,7 +272,7 @@ class TBLiteCalculator(ASECalculator, SemiempiricalCalculator, MSONable):
             >>> props = calc.get_properties(atoms) # doctest: +SKIP
         """
         atoms.get_potential_energy()
-        forces = atoms.get_forces()  # type: ignore
+        forces = atoms.get_forces()
         props = atoms.calc._res.dict()
         energy = props["energy"] * Hartree
         dipole = props["dipole"] * Bohr

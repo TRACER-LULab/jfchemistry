@@ -210,8 +210,8 @@ class FairChemCalculator(ASECalculator, MachineLearnedInteratomicPotentialCalcul
             -234.567
         """
         print(atoms.calc)
-        energy = atoms.get_potential_energy()  # type: ignore
-        forces = atoms.get_forces()  # type: ignore
+        energy = atoms.get_potential_energy()
+        forces = atoms.get_forces()
         atomic_properties = FairChemAtomicProperties(
             forces=AtomicProperty(
                 name="FairChem Forces",
@@ -223,7 +223,8 @@ class FairChemCalculator(ASECalculator, MachineLearnedInteratomicPotentialCalcul
             total_energy=SystemProperty(
                 name="Potential Energy",
                 value=energy * ureg.eV,
-                description=f"Potential energy prediction from {self.model} model and {self.task} task",
+                description=f"Potential energy prediction from {self.model} model and {self.task}\
+                     task",
             ),
         )
         return FairChemProperties(

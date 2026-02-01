@@ -24,7 +24,8 @@ class TorchSimMolecularDynamicsNPTLangevin(TorchSimMolecularDynamics):
         name: Name of the calculator (default: "TorchSim Molecular Dynamics NPT Langevin").
         alpha: Atom friction coefficient controlling noise strength.
         cell_alpha: Cell friction coefficient controlling noise strength.
-        b_tau: Barostat time constant controlling how quickly the system responds to pressure differences.
+        b_tau: Barostat time constant controlling how quickly the system responds to pressure \
+            differences.
         external_pressure: External pressure applied to the system [atm] (default: 1 atm).
 
     """

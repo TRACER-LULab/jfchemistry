@@ -6,7 +6,7 @@ and GFN-xTB methods.
 """
 
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Optional, cast
 
 import torch_sim as ts
 from ase import optimize
@@ -18,6 +18,8 @@ from pymatgen.core.structure import Molecule
 
 from jfchemistry import ureg
 from jfchemistry.conformers.base import ConformerGeneration
+from jfchemistry.core.input_types import RecursiveMoleculeList
+from jfchemistry.core.makers.pymatgen_maker import PymatGenMaker
 from jfchemistry.core.outputs import Output
 from jfchemistry.core.properties import Properties, PropertyClass, SystemProperty
 from jfchemistry.optimizers.ase import ASEOptimizer
@@ -44,7 +46,9 @@ class MMMCOutput(Output):
 
 
 @dataclass
-class MMMCConformers(ConformerGeneration):
+class MMMCConformers[InputType: Molecule, OutputType: RecursiveMoleculeList](
+    ConformerGeneration, PymatGenMaker[InputType, OutputType]
+):
     """Generate conformers with the multiple minimum monte carlo method."""
 
     name: str = "Multiple Minimum Monte Carlo Conformer Generation"
@@ -115,19 +119,19 @@ class MMMCConformers(ConformerGeneration):
     _output_model: type[MMMCOutput] = MMMCOutput
 
     def _operation(
-        self, molecule: Molecule
-    ) -> tuple[Molecule | list[Molecule], Properties | list[Properties]]:
+        self, input: Molecule, **kwargs
+    ) -> tuple[OutputType | list[OutputType], Properties | list[Properties]]:
         """Operation of the MMMC conformer generation."""
         # Write to XYZ file
-        molecule.to(self._filename)
+        input.to(self._filename)
         # Create conformer
-        conformer = Conformer(input_xyz=self._filename, charge=int(molecule.charge))
+        conformer = Conformer(input_xyz=self._filename, charge=int(input.charge))
         # Create Optimizer
         if isinstance(self.optimizer, ASEOptimizer):
             atoms = self.optimizer.calculator._set_calculator(
-                molecule.to_ase_atoms(),
-                charge=int(molecule.charge),
-                spin_multiplicity=int(molecule.spin_multiplicity),
+                input.to_ase_atoms(),
+                charge=int(input.charge),
+                spin_multiplicity=int(input.spin_multiplicity),
             )
             calc = ASEOptimization(
                 atoms.calc,
@@ -136,7 +140,7 @@ class MMMCConformers(ConformerGeneration):
                 max_cycles=self.optimizer.steps,
             )
         elif isinstance(self.optimizer, TorchSimOptimizer):
-            model = self.optimizer.calculator.get_model()
+            model = self.optimizer.calculator._get_model()
             calc = TorchSimCalculation(
                 model=model,
                 optimizer=ts.Optimizer.fire,
@@ -188,4 +192,4 @@ class MMMCConformers(ConformerGeneration):
             )
             for energy in conformer_ensemble.final_energies
         ]
-        return (molecules, properties)
+        return (cast("OutputType", molecules), properties)

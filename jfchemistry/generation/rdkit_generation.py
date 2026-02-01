@@ -4,18 +4,24 @@ This module provides integration with RDKit's distance geometry embedding
 methods for generating 3D molecular structures from 2D representations.
 """
 
+import inspect
 from dataclasses import dataclass, field
-from typing import Annotated, Literal, Optional
+from typing import Annotated, Literal, Optional, cast
 
 from pymatgen.core.structure import Molecule
+from rdkit.Chem import rdDistGeom, rdmolfiles, rdmolops
 
+from jfchemistry.core.input_types import RecursiveMoleculeList
+from jfchemistry.core.makers import RDKitMaker
 from jfchemistry.core.properties import Properties
 from jfchemistry.core.structures import RDMolMolecule
 from jfchemistry.generation.base import StructureGeneration
 
 
 @dataclass
-class RDKitGeneration(StructureGeneration):
+class RDKitGeneration[InputType: RDMolMolecule, OutputType: RecursiveMoleculeList](
+    StructureGeneration, RDKitMaker[InputType, OutputType]
+):
     """Generate 3D structures using RDKit distance geometry methods.
 
     This class uses RDKit's distance geometry embedding algorithms (ETKDG family)
@@ -220,8 +226,8 @@ class RDKitGeneration(StructureGeneration):
     )
 
     def _operation(
-        self, mol: RDMolMolecule
-    ) -> tuple[Molecule | list[Molecule], Properties | list[Properties]]:
+        self, input: InputType, **kwargs
+    ) -> tuple[OutputType | list[OutputType], Properties | list[Properties]]:
         """Generate 3D structure(s) using RDKit distance geometry embedding.
 
         Embeds 3D coordinates into the molecule using the specified ETKDG method
@@ -236,7 +242,8 @@ class RDKitGeneration(StructureGeneration):
         5. Sets charge and spin multiplicity based on formal charge
 
         Args:
-            mol: RDKit molecule without 3D coordinates.
+            input: RDKit molecule without 3D coordinates.
+            **kwargs: Additional kwargs to pass to the operation.
 
         Returns:
             Tuple containing:
@@ -257,10 +264,6 @@ class RDKitGeneration(StructureGeneration):
             >>> structures, props = gen.operation(rdmol) # doctest: +SKIP
             >>> print(f"Generated {len(structures)} conformers") # doctest: +SKIP
         """
-        import inspect
-
-        from rdkit.Chem import rdDistGeom, rdmolfiles, rdmolops
-
         params = getattr(rdDistGeom, self.method)()
         param_keys = [x[0] for x in inspect.getmembers(params)]
         for key, value in vars(self).items():
@@ -273,19 +276,19 @@ class RDKitGeneration(StructureGeneration):
             if camel_key not in param_keys or value is None:
                 continue
             setattr(params, camel_key, value)
-        rdDistGeom.EmbedMultipleConfs(mol, self.num_conformers, params)
+        rdDistGeom.EmbedMultipleConfs(input, self.num_conformers, params)
         molecules: list[Molecule] = []
-        for confId in range(mol.GetNumConformers()):
+        for confId in range(input.GetNumConformers()):
             molecule: Molecule = Molecule.from_str(
-                rdmolfiles.MolToXYZBlock(mol, confId=int(confId)),
-                fmt="xyz",  # type: ignore[arg-type]
+                rdmolfiles.MolToXYZBlock(input, confId=int(confId)),
+                fmt="xyz",
             )
             molecule.to("input.xyz", fmt="xyz")
-            charge = rdmolops.GetFormalCharge(mol)
+            charge = rdmolops.GetFormalCharge(input)
             spin = int(2 * (abs(charge) // 2) + 1)
             molecule.set_charge_and_spin(charge, spin)
             molecules.append(molecule)
         if self.num_conformers == 1:
-            return molecules[0], Properties()
+            return cast("OutputType", molecules[0]), Properties()
         else:
-            return molecules, Properties()
+            return cast("OutputType", molecules), Properties()

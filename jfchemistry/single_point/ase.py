@@ -10,14 +10,14 @@ from typing import cast
 from pymatgen.core.structure import Molecule, Structure
 
 from jfchemistry.calculators.ase.ase_calculator import ASECalculator
-from jfchemistry.core.makers.single_maker import SingleJFChemistryMaker
+from jfchemistry.core.makers import PymatGenMaker
 from jfchemistry.core.properties import Properties
 from jfchemistry.single_point.base import SinglePointCalculation
 
 
 @dataclass
 class ASESinglePoint[InputType: Molecule | Structure, OutputType: Molecule | Structure](
-    SingleJFChemistryMaker[InputType, OutputType],
+    PymatGenMaker[InputType, OutputType],
     SinglePointCalculation,
 ):
     """Base class for single point energy calculations using ASE calculators.
@@ -44,7 +44,7 @@ class ASESinglePoint[InputType: Molecule | Structure, OutputType: Molecule | Str
         super().__post_init__()
 
     def _operation(
-        self, structure: InputType, **kwargs
+        self, input: InputType, **kwargs
     ) -> tuple[OutputType | list[OutputType], Properties | list[Properties]]:
         """Optimize molecular structure using ASE.
 
@@ -56,7 +56,7 @@ class ASESinglePoint[InputType: Molecule | Structure, OutputType: Molecule | Str
         5. Extracting properties from the calculation
 
         Args:
-            structure: Input molecular structure with 3D coordinates.
+            input: Input molecular structure with 3D coordinates.
             **kwargs: Additional kwargs to pass to the operation.
 
         Returns:
@@ -64,13 +64,13 @@ class ASESinglePoint[InputType: Molecule | Structure, OutputType: Molecule | Str
                 - Optimized Pymatgen Molecule
                 - Dictionary of computed properties from calculator
         """
-        atoms = structure.to_ase_atoms()
-        charge = int(structure.charge)
-        if isinstance(structure, Molecule):
-            spin_multiplicity = int(structure.spin_multiplicity)
+        atoms = input.to_ase_atoms()
+        charge = int(input.charge)
+        if isinstance(input, Molecule):
+            spin_multiplicity = int(input.spin_multiplicity)
         else:
             spin_multiplicity = 1
         self.calculator._set_calculator(atoms, charge=charge, spin_multiplicity=spin_multiplicity)
         print(atoms.get_potential_energy())
         properties = self.calculator._get_properties(atoms)
-        return cast("OutputType", structure), properties
+        return cast("OutputType", input), properties

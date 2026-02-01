@@ -37,13 +37,10 @@ set_application_registry(ureg)
 Q_ = ureg.Quantity
 
 __all__ = [
+    "Q_",
     "AtomicProperty",
     "BondProperty",
     "Property",
-    # "RDMolMolecule",
-    # "SingleRDMoleculeMaker",
-    # "SingleStructureMaker",
     "SystemProperty",
     "ureg",
-    "Q_",
 ]

@@ -53,8 +53,6 @@ class TorchSimCalculator(Calculator, MSONable):
         This method must be implemented by subclasses to attach a specific
         ASE calculator to the atoms object.
 
-        Args:
-
         Returns:
             ModelInterface object representing the model.
         """

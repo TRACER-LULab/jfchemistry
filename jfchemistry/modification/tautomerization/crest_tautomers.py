@@ -9,17 +9,17 @@ from dataclasses import dataclass
 from typing import Literal, cast
 
 from pymatgen.core.structure import Molecule
+from pymatgen.io.xyz import XYZ
 
 from jfchemistry.calculators.crest import CRESTCalculator
-from jfchemistry.core import PymatgenBaseMaker
+from jfchemistry.core.makers import PymatGenMaker
 from jfchemistry.core.properties import Properties
-from jfchemistry.modification.molbar_screening import molbar_screening
-from jfchemistry.modification.tautomers.base import TautomerMaker
+from jfchemistry.modification.tautomerization.base import TautomerMaker
 
 
 @dataclass
-class CRESTTautomers[InputType: Molecule, OutputType: Molecule](
-    TautomerMaker, CRESTCalculator, PymatgenBaseMaker[InputType, OutputType]
+class CRESTTautomerization[InputType: Molecule, OutputType: Molecule](
+    TautomerMaker, CRESTCalculator, PymatGenMaker[InputType, OutputType]
 ):
     """Generate tautomers using CREST.
 
@@ -70,7 +70,7 @@ class CRESTTautomers[InputType: Molecule, OutputType: Molecule](
         self._commands.append("--newversion")
 
     def _operation(
-        self, structure: InputType
+        self, input: InputType, **kwargs
     ) -> tuple[OutputType | list[OutputType], Properties | list[Properties]]:
         """Generate protonated structures using CREST.
 
@@ -78,8 +78,9 @@ class CRESTTautomers[InputType: Molecule, OutputType: Molecule](
         generate optimized protonated structures.
 
         Args:
-            structure: Input molecular structure with 3D coordinates. The
+            input: Input molecular structure with 3D coordinates. The
                 molecule's charge is used for the CREST calculation.
+            **kwargs: Additional kwargs to pass to the operation.
 
         Returns:
             Tuple containing:
@@ -94,9 +95,9 @@ class CRESTTautomers[InputType: Molecule, OutputType: Molecule](
             >>> prot = CRESTTautomers(ewin=6.0, threads=4) # doctest: +SKIP
             >>> structures, properties = prot.operation(molecule) # doctest: +SKIP
         """
-        structure.to("input.xyz", fmt="xyz")
-        if self.charge is None and structure.charge is not None:
-            self.charge = structure.charge
+        input.to("input.xyz", fmt="xyz")
+        if self.charge is None and input.charge is not None:
+            self.charge = input.charge
         super()._make_dict()
         super()._write_toml()
         self._make_commands()
@@ -105,6 +106,8 @@ class CRESTTautomers[InputType: Molecule, OutputType: Molecule](
             raise FileNotFoundError(
                 "No tautomers found. Please check your CREST settings and log file."
             ) from None
-        molecules = molbar_screening(self._output_filename, self.threads)
-        print("NUMBER OF TAUTOMERS: ", len(molecules))
-        return cast("list[OutputType]", molecules), cast("list[Properties]", Properties())
+        try:
+            mols = XYZ.from_file(self._output_filename).all_molecules
+        except Exception as e:
+            raise ValueError(f"Error reading tautomers from {self._output_filename}: {e}") from e
+        return cast("list[OutputType]", mols), cast("list[Properties]", Properties())

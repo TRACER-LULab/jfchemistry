@@ -1,7 +1,7 @@
 """Finite Polymer Chain Generator."""
 
 from dataclasses import dataclass, field
-from typing import Annotated, Union
+from typing import Annotated, Optional, Union
 
 from jobflow.core.job import OutputReference, Response
 from jobflow.core.maker import Maker
@@ -19,6 +19,18 @@ class GenerateFinitePolymerChain(Maker):
     """Construct a Finite Polymer Chain Model.
 
     Portions of the workflow are adapted from the PSP library: https://github.com/Ramprasad-Group/PSP
+
+    Args:
+        num_conformers: Number of conformers to generate for the monomer.
+        chain_length: Length of the polymer chain.
+        dihedral_angles: Dihedral angle of the polymer chain \
+        in degrees measured across the connection points.
+        dihedral_cutoff: Dihedral angle cutoff for the polymer chain.
+        monomer_dihedral: Dihedral angle of the monomer.
+        outfile: Output file name.
+
+    Returns:
+        A Finite Polymer Chain Model.
     """
 
     name: str = "GenerateFinite Polymer Chain"
@@ -26,9 +38,11 @@ class GenerateFinitePolymerChain(Maker):
         default=100,
         metadata={"description": "Number of conformers to generate for the monomer."},
     )
-    chain_length: int = field(default=2, metadata={"description": "Length of the polymer chain."})
-    rotation_angles: list[float] | float = field(
-        default=180.0,
+    chain_length: Optional[int] = field(
+        default=None, metadata={"description": "Length of the polymer chain."}
+    )
+    dihedral_angles: Optional[list[float] | float] = field(
+        default=None,
         metadata={
             "description": "Dihedral angle of the polymer chain\
             in degrees measured across the connection points."
@@ -40,6 +54,9 @@ class GenerateFinitePolymerChain(Maker):
     monomer_dihedral: float = field(
         default=180.0, metadata={"description": "Dihedral angle of the monomer."}
     )
+    outfile: str = field(
+        default="generated_chain.xyz", metadata={"description": "Output file name."}
+    )
     _output_model: type[PolymerFiniteChainOutput] = PolymerFiniteChainOutput
     _properties_model: type[Properties] = Properties
 
@@ -47,7 +64,7 @@ class GenerateFinitePolymerChain(Maker):
         """Make a properties model for the job."""
         fields = {}
         for f_name, f_info in self._output_model.model_fields.items():
-            f_dict = f_info.asdict()  # type: ignore
+            f_dict = f_info.asdict()
             annotation = f_dict["annotation"]
             if f_name == "properties":
                 # Construct annotation dynamically to avoid type checker errors with variable types
@@ -60,10 +77,10 @@ class GenerateFinitePolymerChain(Maker):
 
             fields[f_name] = (
                 Annotated[
-                    annotation | None,  # type: ignore
-                    *f_dict["metadata"],  # type: ignore
+                    annotation | None,
+                    *f_dict["metadata"],
                     Field(**f_dict["attributes"]),
-                ],  # type: ignore
+                ],
                 None,
             )
 
@@ -76,16 +93,15 @@ class GenerateFinitePolymerChain(Maker):
     def __post_init__(self):
         """Post-initialization hook to make the output model."""
         # Convert single float to list if needed
-        if isinstance(self.rotation_angles, float):
-            self.rotation_angles = [float(self.rotation_angles)] * self.chain_length
+        if isinstance(self.dihedral_angles, float) and isinstance(self.chain_length, int):
+            assert self.chain_length > 0, "Chain length must be greater than 0"
+            self.dihedral_angles = [self.dihedral_angles] * self.chain_length
 
-        # Validate rotation_angles length matches chain_length
-        if isinstance(self.rotation_angles, list):
-            if len(self.rotation_angles) != self.chain_length:
-                raise ValueError(
-                    f"rotation_angles length ({len(self.rotation_angles)}) must equal "
-                    f"chain_length ({self.chain_length})"
-                )
+        # Validate dihedral_angles length matches chain_length
+        elif isinstance(self.dihedral_angles, list):
+            assert self.chain_length is None, (
+                "Either chain_length or dihedral_angles must be provided"
+            )
 
         self._make_output_model(
             self._properties_model,
@@ -99,17 +115,13 @@ class GenerateFinitePolymerChain(Maker):
         1. Build the chain with the infinite chain builder
         2. Add end caps and convert to a molecular structure
         """
-        if isinstance(self.rotation_angles, (int, float)):
-            self.rotation_angles = [float(self.rotation_angles)] * self.chain_length
-
         chain = make_finite_chain(
             polymer,
-            self.chain_length,
-            self.monomer_dihedral,
-            self.dihedral_cutoff,
-            self.num_conformers,
-            self.rotation_angles,
+            dihedrals=self.dihedral_angles,  # type: ignore
+            dihedral_cutoff=self.dihedral_cutoff,
+            number_conformers=self.num_conformers,
+            monomer_dihedral=self.monomer_dihedral,
         )
         file = chain.to(fmt="xyz")
-        chain.to("generated_chain.xyz")
+        chain.to(self.outfile)
         return Response(output=self._output_model(structure=chain, files={"chain.xyz": file}))

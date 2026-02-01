@@ -1,14 +1,8 @@
-from .makers.single_maker import SingleJFChemistryMaker
-from .makers.single_rdmolecule import SingleRDMoleculeMaker
+"""Core module."""
 
-# from .makers.single_molecule import SingleMoleculeMaker
-# from .makers.single_structure import SingleStructureMaker
-# from .makers.single_structure_molecule import SingleStructureMoleculeMaker
+from .makers import PymatGenMaker, RDKitMaker
 
 __all__ = [
-    "SingleJFChemistryMaker",
-    "SingleRDMoleculeMaker",
-    # "SingleMoleculeMaker",
-    # "SingleStructureMaker",
-    # "SingleStructureMoleculeMaker",
+    "PymatGenMaker",
+    "RDKitMaker",
 ]

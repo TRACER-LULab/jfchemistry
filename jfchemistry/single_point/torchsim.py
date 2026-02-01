@@ -10,14 +10,14 @@ from typing import cast
 from pymatgen.core import Molecule, Structure
 
 from jfchemistry.calculators.torchsim.torchsim_calculator import TorchSimCalculator
-from jfchemistry.core.makers.base_maker import JFChemistryBaseMaker
+from jfchemistry.core.makers import PymatGenMaker
 from jfchemistry.core.properties import Properties
 from jfchemistry.single_point.base import SinglePointCalculation
 
 
 @dataclass
 class TorchSimSinglePoint[InputType: Molecule | Structure, OutputType: Molecule | Structure](
-    SinglePointCalculation, JFChemistryBaseMaker[InputType, OutputType], TorchSimCalculator
+    SinglePointCalculation, PymatGenMaker[InputType, OutputType], TorchSimCalculator
 ):
     """Base class for single point energy calculations using TorchSim calculators.
 
@@ -37,7 +37,7 @@ class TorchSimSinglePoint[InputType: Molecule | Structure, OutputType: Molecule 
     )
 
     def _operation(
-        self, structure: InputType, **kwargs
+        self, input: InputType, **kwargs
     ) -> tuple[OutputType | list[OutputType], Properties | list[Properties]]:
         """Calculate the single point energy of a structure using TorchSim.
 
@@ -49,7 +49,7 @@ class TorchSimSinglePoint[InputType: Molecule | Structure, OutputType: Molecule 
         5. Extracting properties from the calculation
 
         Args:
-            structure: Input molecular structure with 3D coordinates.
+            input: Input molecular structure with 3D coordinates.
             **kwargs: Additional kwargs to pass to the operation.
 
         Returns:
@@ -58,5 +58,5 @@ class TorchSimSinglePoint[InputType: Molecule | Structure, OutputType: Molecule 
                 - Dictionary of computed properties from calculator
 
         """
-        properties = self.calculator._get_properties(structure)
-        return cast("OutputType", structure), properties
+        properties = self.calculator._get_properties(input)
+        return cast("OutputType", input), properties

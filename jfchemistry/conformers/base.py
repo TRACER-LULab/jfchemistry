@@ -4,16 +4,8 @@ This module provides the abstract base class for implementing conformer
 generation methods in jfchemistry workflows.
 """
 
-from dataclasses import dataclass
 
-from pymatgen.core.structure import Molecule
-
-from jfchemistry.core.makers.single_molecule import SingleMoleculeMaker
-from jfchemistry.core.properties import Properties
-
-
-@dataclass
-class ConformerGeneration(SingleMoleculeMaker):
+class ConformerGeneration:
     """Base class for conformer generation methods.
 
     This abstract class defines the interface for conformer generation
@@ -43,33 +35,3 @@ class ConformerGeneration(SingleMoleculeMaker):
     """
 
     name: str = "Conformer Generation"
-
-    def _operation(
-        self, molecule: Molecule
-    ) -> tuple[Molecule | list[Molecule], Properties | list[Properties]]:
-        """Generate conformers from the input structure.
-
-        This method must be implemented by subclasses to perform the actual
-        conformer generation using a specific algorithm or external tool.
-
-        Args:
-            molecule: Input molecular structure with 3D coordinates.
-
-        Returns:
-            Tuple containing:
-                - List of generated conformer structures (or single structure)
-                - Dictionary of properties from conformer generation (or None)
-
-        Raises:
-            NotImplementedError: This method must be implemented by subclasses.
-
-        Examples:
-            >>> # In a subclass
-            >>> def operation(self, structure):
-            ...     conformers = []
-            ...     for i in range(10):
-            ...         conf = perform_conformer_search(structure)
-            ...         conformers.append(conf)
-            ...     return conformers, {"method": "my_method"}
-        """
-        raise NotImplementedError
