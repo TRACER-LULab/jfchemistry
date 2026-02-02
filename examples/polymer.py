@@ -1,72 +1,359 @@
-"""Example of using the PubChemCID node to get a molecule from PubChem."""
+"""Example of using the polymer nodes to run a 21-step MD simulation."""
 
-from jfchemistry.calculators.torchsim.fairchem_calculator import FairChemCalculator
 from jobflow.core.flow import Flow
 from jobflow.managers.local import run_locally
+from numpy.random import choice
 
-from jfchemistry.calculators.torchsim import OrbCalculator
+from jfchemistry.calculators.torchsim.orb_calculator import OrbCalculator
 from jfchemistry.inputs import PolymerInput
 from jfchemistry.molecular_dynamics.torchsim import (
     TorchSimMolecularDynamicsNPTNoseHoover,
     TorchSimMolecularDynamicsNVTNoseHoover,
 )
-from jfchemistry.optimizers.torchsim import TorchSimOptimizer
+from jfchemistry.optimizers import TorchSimOptimizer
 from jfchemistry.packing.packmol import PackmolPacking
 from jfchemistry.polymers import GenerateFinitePolymerChain
 
-# chain_length = 11
-rotation_angles = [180] * 5 + [60] * 5 + [180] * 5
+chain_length = 40
+number_chains = 40
+finite_chain_jobs = []
+finite_chain_structures = []
+calculator = OrbCalculator(model="orb_v3_direct_inf_omat", device="cuda", compile=True)
 
-polymer_job = PolymerInput().make(
-    head="[Si](C)(C)(C)O[*:1]", monomer="[*:1][Si](C)(C)O[*:2]", tail="[Si](C)(C)(C)[*:2]"
-)
+# BEGIN WORKFLOW
 
-finite_chain_job = GenerateFinitePolymerChain(
-    rotation_angles=rotation_angles, chain_length=len(rotation_angles)
-).make(polymer_job.output.structure)
+polymer_job = PolymerInput().make(head="C[*:1]", monomer="[*:1]C[*:2]", tail="C[*:2]")
 
-optimize_job = TorchSimOptimizer(
-    calculator=OrbCalculator(device="cuda", model="orb_v3_direct_20_omat"),
-).make(finite_chain_job.output.structure)
+for _ in range(number_chains):
+    rotation_angles = choice([180, 240, -240], size=chain_length, p=[0.75, 0.125, 0.125]).tolist()
+    job = GenerateFinitePolymerChain(dihedral_angles=rotation_angles, monomer_dihedral=0.0).make(
+        polymer_job.output.structure
+    )
+    finite_chain_jobs.append(job)
+    finite_chain_structures.append(job.output.structure)
 
 pack_job = PackmolPacking(
     packing_mode="box",
-    num_molecules=20,
-    density=0.1,  # g/cm^3
-).make(optimize_job.output.structure)
+    num_molecules=[number_chains],
+    density=0.3,  # g/cm^3
+).make(finite_chain_structures)
 
-nvt_job = TorchSimMolecularDynamicsNVTNoseHoover(
-    calculator=FairChemCalculator(device="cuda"),
-    duration=20,
-    timestep=1.0,
-    temperature=300.0,
+opt_job = TorchSimOptimizer(calculator=calculator).make(pack_job.output.structure)
+
+####### CYCLE 1 #######
+
+nvt_job_1 = TorchSimMolecularDynamicsNVTNoseHoover(
+    temperature=600.0,
+    duration=20_000,
+    calculator=calculator,
+    timestep=0.5,
     log_temperature=True,
     log_potential_energy=True,
-    log_interval=10.0,
-    tau=10.0,
-).make(pack_job.output.structure)
+    log_interval=1_000.0,
+    logfile="nvt_1",
+    tau=50.0,
+).make(opt_job.output.structure)
 
-npt_job = TorchSimMolecularDynamicsNPTNoseHoover(
-    calculator=FairChemCalculator(device="cuda"),
-    duration=20,
-    timestep=1.0,
+nvt_job_2 = TorchSimMolecularDynamicsNVTNoseHoover(
     temperature=300.0,
+    duration=50_000,
+    calculator=calculator,
+    timestep=0.5,
     log_temperature=True,
     log_potential_energy=True,
-    log_interval=10.0,
-    log_volume=True,
-    b_tau=10.0,
-    t_tau=10.0,
-).make(pack_job.output.structure)
+    log_interval=1_000.0,
+    logfile="nvt_2",
+    tau=50.0,
+).make(nvt_job_1.output.structure)
+
+npt_job_3 = TorchSimMolecularDynamicsNPTNoseHoover(
+    temperature=300.0,
+    external_pressure=1.0,
+    duration=20_000,
+    calculator=calculator,
+    timestep=0.5,
+    log_temperature=True,
+    log_potential_energy=True,
+    log_interval=1_000.0,
+    log_volume=False,
+    logfile="npt_3",
+    b_tau=500.0,
+    t_tau=50.0,
+).make(nvt_job_2.output.structure)
+
+# ####### CYCLE 2 #######
+
+nvt_job_4 = TorchSimMolecularDynamicsNVTNoseHoover(
+    temperature=600.0,
+    duration=50_000,
+    calculator=calculator,
+    timestep=0.5,
+    log_temperature=True,
+    log_potential_energy=True,
+    log_interval=1_000.0,
+    logfile="nvt_4",
+    tau=50.0,
+).make(npt_job_3.output.structure)
+
+nvt_job_5 = TorchSimMolecularDynamicsNVTNoseHoover(
+    temperature=300.0,
+    duration=100_000,
+    calculator=calculator,
+    timestep=0.5,
+    log_temperature=True,
+    log_potential_energy=True,
+    log_interval=1_000.0,
+    logfile="nvt_5",
+    tau=50.0,
+).make(nvt_job_4.output.structure)
+
+npt_job_6 = TorchSimMolecularDynamicsNPTNoseHoover(
+    temperature=300.0,
+    external_pressure=30_000.0,
+    duration=50_000,
+    calculator=calculator,
+    timestep=0.5,
+    log_temperature=True,
+    log_potential_energy=True,
+    log_interval=1_000.0,
+    log_volume=False,
+    logfile="npt_6",
+    b_tau=500.0,
+    t_tau=50.0,
+).make(nvt_job_5.output.structure)
+
+# ####### CYCLE 3 #######
+
+nvt_job_7 = TorchSimMolecularDynamicsNVTNoseHoover(
+    temperature=600.0,
+    duration=50_000,
+    calculator=calculator,
+    timestep=0.5,
+    log_temperature=True,
+    log_potential_energy=True,
+    log_interval=1_000.0,
+    logfile="nvt_7",
+    tau=50.0,
+).make(npt_job_6.output.structure)
+
+nvt_job_8 = TorchSimMolecularDynamicsNVTNoseHoover(
+    temperature=300.0,
+    duration=100_000,
+    calculator=calculator,
+    timestep=0.5,
+    log_temperature=True,
+    log_potential_energy=True,
+    log_interval=1_000.0,
+    logfile="nvt_8",
+    tau=50.0,
+).make(nvt_job_7.output.structure)
+
+npt_job_9 = TorchSimMolecularDynamicsNPTNoseHoover(
+    temperature=300.0,
+    external_pressure=50_000,
+    duration=50_000,
+    calculator=calculator,
+    timestep=0.5,
+    log_temperature=True,
+    log_potential_energy=True,
+    log_interval=1_000.0,
+    log_volume=False,
+    logfile="npt_9",
+    b_tau=500.0,
+    t_tau=50.0,
+).make(nvt_job_8.output.structure)
+
+# ####### CYCLE 4 #######
+
+nvt_job_10 = TorchSimMolecularDynamicsNVTNoseHoover(
+    temperature=600.0,
+    duration=500_000,
+    calculator=calculator,
+    timestep=0.5,
+    log_temperature=True,
+    log_potential_energy=True,
+    log_interval=1_000.0,
+    logfile="nvt_10",
+    tau=50.0,
+).make(npt_job_9.output.structure)
+
+nvt_job_11 = TorchSimMolecularDynamicsNVTNoseHoover(
+    temperature=300.0,
+    duration=100_000,
+    calculator=calculator,
+    timestep=0.5,
+    log_temperature=True,
+    log_potential_energy=True,
+    log_interval=1_000.0,
+    logfile="nvt_11",
+    tau=50.0,
+).make(nvt_job_10.output.structure)
+
+npt_job_12 = TorchSimMolecularDynamicsNPTNoseHoover(
+    temperature=300.0,
+    external_pressure=25_000,
+    duration=5_000,
+    calculator=calculator,
+    timestep=0.5,
+    log_temperature=True,
+    log_potential_energy=True,
+    log_interval=1_000.0,
+    log_volume=False,
+    logfile="npt_12",
+    b_tau=500.0,
+    t_tau=50.0,
+).make(nvt_job_11.output.structure)
+
+# ####### CYCLE 5 #######
+
+nvt_job_13 = TorchSimMolecularDynamicsNVTNoseHoover(
+    temperature=600.0,
+    duration=500_000,
+    calculator=calculator,
+    timestep=0.5,
+    log_temperature=True,
+    log_potential_energy=True,
+    log_interval=1_000.0,
+    logfile="nvt_13",
+    tau=50.0,
+).make(npt_job_12.output.structure)
+
+nvt_job_14 = TorchSimMolecularDynamicsNVTNoseHoover(
+    temperature=300.0,
+    duration=10_000,
+    calculator=calculator,
+    timestep=0.5,
+    log_temperature=True,
+    log_potential_energy=True,
+    log_interval=1_000.0,
+    logfile="nvt_14",
+    tau=50.0,
+).make(nvt_job_13.output.structure)
+
+npt_job_15 = TorchSimMolecularDynamicsNPTNoseHoover(
+    temperature=300.0,
+    external_pressure=5_000,
+    calculator=calculator,
+    duration=5_000,
+    timestep=0.5,
+    log_temperature=True,
+    log_potential_energy=True,
+    log_interval=1_000.0,
+    log_volume=False,
+    logfile="npt_15",
+    b_tau=500.0,
+    t_tau=50.0,
+).make(nvt_job_14.output.structure)
+
+# ####### CYCLE 6 #######
+
+nvt_job_16 = TorchSimMolecularDynamicsNVTNoseHoover(
+    temperature=600.0,
+    duration=500_000,
+    calculator=calculator,
+    timestep=0.5,
+    log_temperature=True,
+    log_potential_energy=True,
+    log_interval=1_000.0,
+    logfile="nvt_16",
+    tau=50.0,
+).make(npt_job_15.output.structure)
+
+nvt_job_17 = TorchSimMolecularDynamicsNVTNoseHoover(
+    temperature=300.0,
+    duration=10_000,
+    calculator=calculator,
+    timestep=0.5,
+    log_temperature=True,
+    log_potential_energy=True,
+    log_interval=1_000.0,
+    logfile="nvt_17",
+    tau=50.0,
+).make(nvt_job_16.output.structure)
+
+npt_job_18 = TorchSimMolecularDynamicsNPTNoseHoover(
+    temperature=300.0,
+    external_pressure=500,
+    duration=5_000,
+    calculator=calculator,
+    timestep=0.5,
+    log_temperature=True,
+    log_potential_energy=True,
+    log_interval=1_000.0,
+    log_volume=False,
+    logfile="npt_18",
+    b_tau=500.0,
+    t_tau=50.0,
+).make(nvt_job_17.output.structure)
+
+# ####### CYCLE 7 #######
+
+nvt_job_19 = TorchSimMolecularDynamicsNVTNoseHoover(
+    temperature=600.0,
+    duration=1_000_000,
+    calculator=calculator,
+    timestep=0.5,
+    log_temperature=True,
+    log_potential_energy=True,
+    log_interval=1_000.0,
+    logfile="nvt_19",
+    tau=50.0,
+).make(npt_job_18.output.structure)
+
+nvt_job_20 = TorchSimMolecularDynamicsNVTNoseHoover(
+    temperature=300.0,
+    duration=10_000,
+    calculator=calculator,
+    timestep=0.5,
+    log_temperature=True,
+    log_potential_energy=True,
+    log_interval=1_000.0,
+    logfile="nvt_20",
+    tau=50.0,
+).make(nvt_job_19.output.structure)
+
+npt_job_21 = TorchSimMolecularDynamicsNPTNoseHoover(
+    temperature=300.0,
+    external_pressure=1,
+    duration=800_000,
+    calculator=calculator,
+    timestep=0.5,
+    log_temperature=True,
+    log_potential_energy=True,
+    log_interval=1_000.0,
+    log_volume=False,
+    logfile="npt_21",
+    b_tau=500.0,
+    t_tau=50.0,
+).make(nvt_job_20.output.structure)
 
 flow = Flow(
     [
         polymer_job,
-        finite_chain_job,
-        optimize_job,
+        *finite_chain_jobs,
         pack_job,
-        nvt_job,
-        npt_job,
+        opt_job,
+        nvt_job_1,
+        nvt_job_2,
+        npt_job_3,
+        nvt_job_4,
+        nvt_job_5,
+        npt_job_6,
+        nvt_job_7,
+        nvt_job_8,
+        npt_job_9,
+        nvt_job_10,
+        nvt_job_11,
+        npt_job_12,
+        nvt_job_13,
+        nvt_job_14,
+        npt_job_15,
+        nvt_job_16,
+        nvt_job_17,
+        npt_job_18,
+        nvt_job_19,
+        nvt_job_20,
+        npt_job_21,
     ]
 )
 

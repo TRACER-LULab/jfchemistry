@@ -34,7 +34,7 @@ class GOATConformers(ORCACalculator, ConformerGeneration):
         # Get the default calculator SK_list
         sk_list = super()._set_keywords()
         # Add the GOAT keywords
-        sk_list.append(getattr(Goat, self.goat.upper()))  # type: ignore
+        sk_list.append(getattr(Goat, self.goat.upper()))
 
         # Make the calculator
         calc = Calculator(basename=self._basename, working_dir=Path("."))

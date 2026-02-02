@@ -232,19 +232,19 @@ class ORCACalculator(WavefunctionCalculator, MSONable):
                 "MOCoefficients": True,
             }
             output.create_gbw_json(force=True, config=config_dict)
-            output.parse(read_gbw_json=True, read_prop_json=True)
+            output.parse(read_gbw_json=True, read_prop_json=True)  # type: ignore[attr-defined]
             if output.results_gbw is None:
                 raise ValueError("GBW file not found in output")
-            if output.results_gbw[0].molecule is None:
+            if output.results_gbw[0].molecule is None:  # type: ignore[attr-defined]
                 raise ValueError("Molecular orbitals not found in output")
-            S = output.get_int_overlap()
+            S = output.get_int_overlap()  # type: ignore[attr-defined]
             B = np.zeros(
                 (
                     output.results_properties.calculation_info.numofatoms,  # type: ignore[attr-defined]
                     output.results_properties.calculation_info.numofbasisfuncts,  # type: ignore[attr-defined]
                 )
             )  # type: ignore[attr-defined]
-            MO = output.results_gbw[0].molecule.molecularorbitals
+            MO = output.results_gbw[0].molecule.molecularorbitals  # type: ignore[attr-defined]
             if MO is None:
                 raise ValueError("Molecular orbitals not found in output")
             if MO.mos is None:
@@ -261,7 +261,7 @@ class ORCACalculator(WavefunctionCalculator, MSONable):
                 orbital_indices.append(int(match.groups()[0]))
 
             if self.homo_threshold is not None:
-                homo = output.get_homo()
+                homo = output.get_homo()  # type: ignore[attr-defined]
                 if homo is None:
                     raise ValueError("HOMO not found in output")
                 homo_energy = homo.orbitalenergy
@@ -277,7 +277,7 @@ class ORCACalculator(WavefunctionCalculator, MSONable):
                     and mo.orbitalenergy - homo_energy <= self.homo_threshold
                 ]
                 for orbital in homo_orbitals:
-                    C = orbital.mocoefficients  # type: ignore[attr-defined]
+                    C = orbital.mocoefficients
                     if C is None:
                         raise ValueError("Molecular orbital coefficients not found in output")
                     for orbital_index, atom_index in enumerate(orbital_indices):
@@ -291,7 +291,7 @@ class ORCACalculator(WavefunctionCalculator, MSONable):
                              {self.homo_threshold} eV of HOMO",
                     )
             if self.lumo_threshold is not None:
-                lumo = output.get_lumo()
+                lumo = output.get_lumo()  # type: ignore[attr-defined]
                 if lumo is None:
                     raise ValueError("LUMO not found in output")
                 lumo_energy = lumo.orbitalenergy
@@ -306,7 +306,7 @@ class ORCACalculator(WavefunctionCalculator, MSONable):
                     and mo.orbitalenergy - lumo_energy <= self.lumo_threshold
                 ]
                 for orbital in lumo_orbitals:
-                    C = orbital.mocoefficients  # type: ignore[attr-defined]
+                    C = orbital.mocoefficients
                     if C is None:
                         raise ValueError("Molecular orbital coefficients not found in output")
                     for orbital_index, atom_index in enumerate(orbital_indices):

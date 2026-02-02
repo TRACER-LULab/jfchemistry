@@ -134,8 +134,8 @@ class ORBCalculator(ASECalculator, MachineLearnedInteratomicPotentialCalculator,
                 Please remove the cell from the atoms object."
             )
         try:
-            from orb_models.forcefield import pretrained  # type: ignore
-            from orb_models.forcefield.calculator import ORBCalculator  # type: ignore
+            from orb_models.forcefield import pretrained
+            from orb_models.forcefield.calculator import ORBCalculator
         except ImportError as e:
             raise ImportError(
                 "The 'orb-models' package is required to use ORBCalculator but is not available."
@@ -178,8 +178,8 @@ class ORBCalculator(ASECalculator, MachineLearnedInteratomicPotentialCalculator,
             >>> print(props["Global"]["Total Energy [eV]"]) # doctest: +SKIP
             -234.567
         """
-        energy = atoms.get_total_energy()  # type: ignore
-        forces = atoms.get_forces()  # type: ignore
+        energy = atoms.get_total_energy()
+        forces = atoms.get_forces()
         atomic_properties = OrbAtomicProperties(
             forces=AtomicProperty(
                 name="ORB Forces",

@@ -1,3 +1,4 @@
+"""Polymer Generator."""
 
 import re
 from dataclasses import dataclass
@@ -5,10 +6,9 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 from pymatgen.core.structure import Molecule, Site
+from rdkit import Geometry
 from rdkit.Chem import (
-    AllChem,
     rdchem,
-    rdDetermineBonds,
     rdDistGeom,
     rdForceFieldHelpers,
     rdmolfiles,
@@ -21,64 +21,37 @@ from jfchemistry.core.structures import Polymer
 
 @dataclass
 class MonomerAtomCap:
+    """Represents a connection point (cap) in a monomer unit.
+
+    Attributes:
+        atom_type: The atomic symbol of the atom connected to the dummy atom.
+        atom_index: The index of the atom connected to the dummy atom.
+        connection_index: The connection point label (e.g., from SMILES [*:1], [*:2]).
+        connected_atom_index: The index of the dummy atom (atomic number 0).
+    """
+
     atom_type: str
     atom_index: int
-    connection_index: int | list[int]
-    connected_atom_index: int | list[int]
-
-
-def pymatgen_to_rdkit_with_bonds(pmg_mol: Molecule, charge: int = 0) -> rdchem.Mol:
-    """Convert a pymatgen Molecule to an RDKit Mol object with bonding information.
-
-    This function uses RDKit's bond perception algorithm to determine connectivity
-    from 3D coordinates.
-
-    Args:
-        pmg_mol: pymatgen Molecule object
-        charge: Total charge of the molecule (default: 0)
-
-    Returns:
-        RDKit Mol object with bonds determined from geometry
-
-    Examples:
-        >>> from pymatgen.core import Molecule
-        >>> pmg_mol = Molecule(["C", "H", "H", "H", "H"],
-        ...                    [[0, 0, 0], [0.63, 0.63, 0.63],
-        ...                     [-0.63, -0.63, 0.63], [-0.63, 0.63, -0.63],
-        ...                     [0.63, -0.63, -0.63]])
-        >>> rdkit_mol = pymatgen_to_rdkit_with_bonds(pmg_mol)
-        >>> rdkit_mol.GetNumBonds()
-        4
-    """
-    # Create an editable RDKit molecule
-    rd_mol = rdchem.RWMol()
-
-    # Add atoms
-    for site in pmg_mol.sites:
-        atom = rdchem.Atom(site.species_string)
-        rd_mol.AddAtom(atom)
-
-    # Add a conformer with 3D coordinates
-    conf = rdchem.Conformer(len(pmg_mol))
-    for i, site in enumerate(pmg_mol.sites):
-        conf.SetAtomPosition(i, site.coords)
-
-    rd_mol.AddConformer(conf)
-
-    # Convert to regular Mol (needed for rdDetermineBonds)
-    rd_mol = rd_mol.GetMol()
-
-    # Determine bonds from 3D coordinates
-    try:
-        rdDetermineBonds.DetermineBonds(rd_mol, useVdw=True)
-    except Exception as e:
-        print(f"Warning: Bond determination failed with error: {e}")
-        print("Returning molecule without bonds.")
-        return rd_mol
-    return rd_mol
+    connection_index: int
+    connected_atom_index: int
 
 
 def get_atom_caps(m: rdchem.Mol) -> tuple[list[MonomerAtomCap], bool]:
+    """Extract connection point information from a monomer molecule.
+
+    Identifies dummy atoms (atomic number 0) in the molecule and extracts
+    information about their connection points, including the atom types they
+    connect to and their connection indices from SMILES notation.
+
+    Args:
+        m: RDKit molecule object containing dummy atoms as connection points.
+
+    Returns:
+        A tuple containing:
+            - List of MonomerAtomCap objects sorted by connection_index.
+            - Boolean indicating if this is a dimer (both connection points
+              connect to the same atom).
+    """
     smiles = rdmolfiles.MolToSmiles(m)
     pattern = r"\[\*:\d+\]"
     connection_points_strings = re.findall(pattern, smiles)
@@ -90,15 +63,14 @@ def get_atom_caps(m: rdchem.Mol) -> tuple[list[MonomerAtomCap], bool]:
     A = np.array(rdmolops.GetAdjacencyMatrix(m))
     symbols = np.array([x.GetSymbol() for x in m.GetAtoms()])
     atomCaps: list[MonomerAtomCap] = []
-    for index, connection_index in zip(connected_indices, numbers):
+    for index, connection_index in zip(connected_indices, numbers, strict=False):
         atom_type = str(symbols[A[index, :] >= 1][0])
         if len(atom_type) != 1:
             atom_type = f"[{atom_type}]"
         atom_index = int(np.argwhere(A[index, :] >= 1)[0, 0])
         connected_atom_index = index
-        connection_index = int(connection_index)
         atomCaps.append(
-            MonomerAtomCap(atom_type, atom_index, connection_index, connected_atom_index)
+            MonomerAtomCap(atom_type, atom_index, int(connection_index), connected_atom_index)
         )
     dimer = all(obj.atom_index == atomCaps[0].atom_index for obj in atomCaps)
     atomCaps.sort(key=lambda x: x.connection_index)
@@ -106,17 +78,63 @@ def get_atom_caps(m: rdchem.Mol) -> tuple[list[MonomerAtomCap], bool]:
     return atomCaps, dimer
 
 
-def generate_monomer(
-    m: rdchem.Mol, monomer_dihedral: float, dihedral_cutoff: float, number_conformers: int
+def generate_dimer_smiles(m_smiles: str, caps: list[MonomerAtomCap]) -> str:
+    """Generate a dimer SMILES string by connecting two monomer units.
+
+    Creates a dimer by replacing both connection points with a common label
+    and using molzip to connect them.
+
+    Args:
+        m_smiles: SMILES string of the monomer with connection points.
+        caps: List of MonomerAtomCap objects (expected to have 2 elements).
+
+    Returns:
+        SMILES string of the dimer formed by connecting two monomer units.
+    """
+    smiles_1 = m_smiles.replace(f"[*:{caps[0].connection_index}]", "[*:100]")
+    smiles_2 = m_smiles.replace(f"[*:{caps[1].connection_index}]", "[*:100]")
+    mol1 = rdmolfiles.MolFromSmiles(smiles_1)
+    mol2 = rdmolfiles.MolFromSmiles(smiles_2)
+    mol = rdmolops.molzip(mol1, mol2)
+    return rdmolfiles.MolToSmiles(mol)
+
+
+def generate_monomer(  # noqa: PLR0915
+    m: rdchem.Mol,
+    monomer_dihedral: float | None = None,
+    dihedral_cutoff: float = 10,
+    number_conformers: int = 100,
 ) -> tuple[Molecule, bool]:
     """Generate a capped monomer for creating a polymer chain.
+
     For a monomer, `m`, the unit is characterized by the following points:
     C0 - A0 - R - A1 - C1
     or
     C0 - A0 - C1
          |
          R
-    Where C0 and C1 are the connection points, and A0 and A1 are the atoms that are the head and tail connections for the monomer. For a repeating chain, the atom type of C0 = A1, and C1 = A0,
+    Where C0 and C1 are the connection points, and A0 and A1 are the atoms that are the head and
+    tail connections for the monomer. For a repeating chain, the atom type of C0 = A1, and C1 = A0.
+
+    The function generates multiple conformers, optimizes them with UFF force field,
+    and selects the lowest energy conformer that meets the dihedral angle constraints.
+    The resulting molecule is translated and rotated to a standard orientation.
+
+    Args:
+        m: RDKit molecule object representing the monomer with connection points.
+        monomer_dihedral: Optional target dihedral angle (in degrees) for the connecting
+            dihedral. If provided, conformers are filtered to those within dihedral_cutoff
+            of this value.
+        dihedral_cutoff: Maximum deviation (in degrees) from monomer_dihedral for
+            conformer selection. Only used if monomer_dihedral is provided.
+        number_conformers: Number of conformers to generate and optimize.
+
+    Returns:
+        A tuple containing:
+            - pymatgen Molecule object of the capped monomer in its optimal conformation,
+              oriented with C0 at origin and aligned along z-axis.
+            - Boolean indicating if this is a dimer (both connection points connect
+              to the same atom).
     """
     # Canonicalize the SMILES for the molecule
     m = rdmolops.RemoveHs(m)
@@ -124,6 +142,12 @@ def generate_monomer(
     m = rdmolfiles.MolFromSmiles(m_smiles)
     # Get the monomer connections
     atom_caps, dimer = get_atom_caps(m)
+
+    if dimer:
+        m_smiles = generate_dimer_smiles(m_smiles, atom_caps)
+        m = rdmolfiles.MolFromSmiles(m_smiles)
+        atom_caps, _ = get_atom_caps(m)
+
     head_cap, tail_cap = atom_caps
     # Replace First Atom Cap Type:
     m_capped_smiles = m_smiles.replace(
@@ -134,35 +158,29 @@ def generate_monomer(
     # Embed conformers for the capped monomer
     rdDistGeom.EmbedMultipleConfs(monomer_capped_mol, numConfs=number_conformers)
     # Get the connecting dihedral
-    if not dimer:
-        atom_i = atom_caps[0].connected_atom_index
-        atom_j = atom_caps[0].atom_index
-        atom_k = atom_caps[1].atom_index
-        atom_l = atom_caps[1].connected_atom_index
-        # atom_i, atom_l = connections.connecting_points
-        # atom_j, atom_k = connections.connected_atoms
-    # Setup the forcefield
-    ff = rdForceFieldHelpers.UFFGetMoleculeForceField(monomer_capped_mol)
-    # Apply dihedral constraints if applicable
-    if not dimer and monomer_dihedral:
-        ff.UFFAddTorsionConstraint(
-            atom_i,
-            atom_j,
-            atom_k,
-            atom_l,
-            False,
-            monomer_dihedral,
-            monomer_dihedral,
-            1000,
-        )
-    # Optimize the molecule
-    results = rdForceFieldHelpers.OptimizeMoleculeConfs(mol=monomer_capped_mol, ff=ff)
-    # retrieve the energies
-    energies = np.array([r[1] for r in results])
-    # create a dataframe
+    atom_i = atom_caps[0].connected_atom_index
+    atom_j = atom_caps[0].atom_index
+    atom_k = atom_caps[1].atom_index
+    atom_l = atom_caps[1].connected_atom_index
+
+    energies = np.zeros(monomer_capped_mol.GetNumConformers())
+    for _i, confId in enumerate(range(monomer_capped_mol.GetNumConformers())):
+        ff = rdForceFieldHelpers.UFFGetMoleculeForceField(monomer_capped_mol, confId=confId)
+        if monomer_dihedral is not None:
+            ff.UFFAddTorsionConstraint(
+                atom_i,
+                atom_j,
+                atom_k,
+                atom_l,
+                False,
+                monomer_dihedral,
+                monomer_dihedral,
+                10_000,
+            )
+        rdForceFieldHelpers.OptimizeMolecule(ff=ff)
+        energies[_i] = ff.CalcEnergy()
     df = pd.DataFrame({"confId": range(monomer_capped_mol.GetNumConformers()), "energy": energies})
-    # If dihedrals are constrained, then filter by the dihedrals
-    if not dimer:
+    if monomer_dihedral is not None:
         dihedrals = np.array(
             [
                 rdMolTransforms.GetDihedralDeg(conf, atom_i, atom_j, atom_k, atom_l)
@@ -171,6 +189,7 @@ def generate_monomer(
         )
         dihedrals = np.abs(dihedrals)
         df["dihedral"] = np.max(dihedrals) - dihedrals
+        df.sort_values(by=["dihedral"], inplace=True, ascending=False)
         df = df[df["dihedral"] < dihedral_cutoff]
     # Find the minimum energy structure
     df.sort_values(by=["energy"], inplace=True)
@@ -192,28 +211,19 @@ def generate_monomer(
     for ac in atom_caps:
         connected_atoms = monomer_atoms[A[ac.connected_atom_index] >= 1]
         for atom in connected_atoms:
-            if atom.GetSymbol() == "H":
+            if atom.GetAtomicNum() == 1:
                 extra_Hs.append(atom.GetIdx())
     sites = np.delete(sites, extra_Hs)
     # Reorder the sites so that C0, A0, ..., A1, C1
     indices = np.array(list(range(len(sites))))
-    if dimer:
-        idx1 = atom_caps[1].connected_atom_index
-        idx3 = atom_caps[0].atom_index
-        idx4 = atom_caps[0].connected_atom_index
-        indices = list(np.delete(indices, [idx1, idx3, idx4]))
-        order = [idx4, idx3] + indices + [idx1]
-    else:
-        idx1 = atom_caps[1].connected_atom_index
-        idx2 = atom_caps[1].atom_index
-        idx3 = atom_caps[0].atom_index
-        idx4 = atom_caps[0].connected_atom_index
-        indices = list(np.delete(indices, [idx1, idx2, idx3, idx4]))
-        order = [idx4, idx3] + indices + [idx2, idx1]
-    print(order)
+    idx1 = atom_caps[1].connected_atom_index
+    idx2 = atom_caps[1].atom_index
+    idx3 = atom_caps[0].atom_index
+    idx4 = atom_caps[0].connected_atom_index
+    indices = list(np.delete(indices, [idx1, idx2, idx3, idx4]))
+    order = [idx4, idx3, *indices, idx2, idx1]
     # Form Molecule
-    print(sites[order])
-    molecule = Molecule.from_sites(sites[order])
+    molecule = Molecule.from_sites(sites[order].tolist())
     # Translate C0 to the origin
     # Rotate to align A1 or A0 (dimer) with the z-axis
     _m = molecule.to_ase_atoms()
@@ -228,142 +238,151 @@ def generate_monomer(
 
 
 def rotate_monomer(
-    last_monomer: Molecule, next_monomer: Molecule, dihedral_angle: float, dimer: bool
+    last_monomer: Molecule, next_monomer: Molecule, dihedral_angle: float
 ) -> Molecule:
+    """Rotate and position a monomer to connect to the previous monomer in a chain.
+
+    Aligns the new monomer's connection point (C0) with the previous monomer's
+    connection point, rotates to align the bond vectors, and sets the dihedral
+    angle between the two monomers.
+
+    Args:
+        last_monomer: The previous monomer in the chain (pymatgen Molecule).
+        next_monomer: The monomer to be added to the chain (pymatgen Molecule).
+        dihedral_angle: Target dihedral angle (in degrees) for the connection
+            between the two monomers.
+
+    Returns:
+        A new pymatgen Molecule object representing the rotated and positioned
+        next_monomer, ready to be appended to the chain.
+    """
     # Align New-C0 with Old-A1/A0(dimer)
     old = last_monomer.copy().to_ase_atoms()
     new = next_monomer.copy().to_ase_atoms()
-    if dimer:
-        connection_point = old[1].position
-    else:
-        connection_point = old[-2].position
+    connection_point = old[-2].position
     new.translate(connection_point - new[0].position)
 
-    # Align Connection Vector
-    if dimer:
-        # Align Old - A0-C1 with New C0-A0
-        V1 = old[1].position - old[-1].position
-        V2 = new[0].position - new[1].position
-        center = new[0].position
-    else:
-        # Align Old - A1-C1 with New C0 - A0
-        V1 = old[-1].position - old[-2].position
-        V2 = new[1].position - new[0].position
-        center = new[0].position
+    # Align Old - A1-C1 with New C0 - A0
+    V1 = old[-1].position - old[-2].position
+    V2 = new[1].position - new[0].position
+    center = new[0].position
     new.rotate(V2, V1, center=center)
 
     # Fix Dihedrals
     atoms = old + new
-    if dimer:
-        atom_i = 0  # Chain - C0
-        atom_j = 1  # Chain - A0
-        atom_k = len(old) + 1  # Monomer - A0
-        atom_l = len(old) + len(new) - 1  # Monomer - C1
-    else:
-        atom_i = 1  # Chain - A0
-        atom_j = len(old) - 2  # Chain - A1
-        atom_k = len(old) + 1  # Monomer - A0
-        atom_l = len(old) + len(new) - 2  # Monomer - A1
-
-    indices = range(len(old), len(atoms))
+    atom_i = 1  # Chain - A0
+    atom_j = len(old) - 2  # Chain - A1
+    atom_k = len(old) + 1  # Monomer - A0
+    atom_l = len(old) + len(new) - 2  # Monomer - A1
 
     atoms.set_dihedral(
         atom_i,
         atom_j,
         atom_k,
         atom_l,
-        dihedral_angle if dimer else dihedral_angle - 180,
+        dihedral_angle,
         indices=range(len(new), len(atoms)),
     )
 
     return Molecule.from_ase_atoms(atoms[len(new) :])
 
 
-def build_chain(
-    monomer: Molecule, dihedral_angle: float | list[float], dimer: bool, chain_length: int
-) -> Molecule:
-    monomer_start = monomer.copy()
-    monomer_list = [monomer.copy()]
-    if isinstance(dihedral_angle, list):
-        assert len(dihedral_angle) == chain_length
-    else:
-        dihedral_angle = [dihedral_angle] * chain_length
-    for i in range(chain_length - 1):
-        next_monomer = rotate_monomer(monomer_list[-1], monomer_start, dihedral_angle[i], dimer)
-        monomer_list.append(next_monomer)
+def add_cap(p: Polymer, last_monomer: Molecule, head: bool = True) -> Molecule:  # noqa: PLR0915
+    """Add a head or tail cap group to a polymer chain.
 
-    atoms_list = [mol for mol in monomer_list]
-    # atoms = Atoms()
-    # for mer in atoms_list:
-    #     atoms += mer
-    # chain = Molecule.from_ase_atoms(atoms)
-    return atoms_list
+    Connects either the head or tail cap group from the Polymer object to
+    the first or last monomer in the chain. The cap is positioned using
+    constrained embedding to match the geometry of the adjacent monomer.
 
+    Args:
+        p: Polymer object containing the monomer, head, and tail cap molecules.
+        last_monomer: The monomer at the end of the chain where the cap will
+            be attached (first monomer for head=True, last monomer for head=False).
+        head: If True, add the head cap; if False, add the tail cap.
 
-def add_cap(p: Polymer, last_monomer: Molecule, head: bool = True):
-    # 1. Standardize head unit and get the atom caps
+    Returns:
+        A pymatgen Molecule object representing the cap group positioned and
+        ready to be connected to the chain.
+
+    Raises:
+        AssertionError: If the constrained embedding of the cap fails.
+    """
     if head:
         h = rdmolops.RemoveHs(p.head)
     else:
         h = rdmolops.RemoveHs(p.tail)
-    ## Get the unit connections
-    atom_caps, dimer = get_atom_caps(h)
-    [h_head_cap] = atom_caps
+    head_atom_caps, _ = get_atom_caps(h)
+    [h_head_cap] = head_atom_caps
     h = rdmolops.AddHs(h)
+    indices = np.array(list(range(h.GetNumAtoms())))
+    idx1 = h_head_cap.connected_atom_index
+    idx2 = h_head_cap.atom_index
+    indices = list(np.delete(indices, [idx1, idx2]))
+    order = [idx1, idx2, *indices]
+    h = rdmolops.RenumberAtoms(mol=h, newOrder=np.array(order).tolist())
     # 2. Repeat for Monomer Unit
     m = rdmolops.RemoveHs(p.monomer)
-    m = rdmolops.AddHs(m)
     m_smiles = rdmolfiles.MolToSmiles(m)
     atom_caps, dimer = get_atom_caps(m)
     m_head_cap, m_tail_cap = atom_caps
-    # Update the monomer graph
-    if head:
-        m_smiles = m_smiles.replace(f"[*:{m_tail_cap.connection_index}]", m_head_cap.atom_type)
-    else:
-        m_smiles = m_smiles.replace(f"[*:{m_head_cap.connection_index}]", m_tail_cap.atom_type)
-
-    m = rdmolfiles.MolFromSmiles(m_smiles, sanitize=False)
-    # 3. Update Head smiles to have the correct end_cap
-    hm = rdmolops.molzip(h, m)
-    # 4. Create the monomer standard graph w/ caps
-    if head:
-        m_core_smiles = m_smiles.replace(f"[*:{m_head_cap.connection_index}]", m_tail_cap.atom_type)
-    else:
-        m_core_smiles = m_smiles.replace(f"[*:{m_tail_cap.connection_index}]", m_head_cap.atom_type)
-
-    m_core = rdmolfiles.MolFromSmiles(m_core_smiles, sanitize=False)
-    # 5. Reorder the atoms to match the pmg Molecule
-    indices = list(range(m_core.GetNumAtoms()))
     if dimer:
-        idx1 = atom_caps[1].connected_atom_index
-        idx3 = atom_caps[0].atom_index
-        idx4 = atom_caps[0].connected_atom_index
-        indices = list(np.delete(indices, [idx1, idx3, idx4]))
-        order = [idx4, idx3] + indices + [idx1]
+        m_smiles = generate_dimer_smiles(m_smiles, atom_caps)
+        m = rdmolfiles.MolFromSmiles(m_smiles)
+        atom_caps, dimer = get_atom_caps(m)
+        m_head_cap, m_tail_cap = atom_caps
+    # Update the monomer graph
+    m_smiles = m_smiles.replace(f"[*:{m_head_cap.connection_index}]", m_tail_cap.atom_type).replace(
+        f"[*:{m_tail_cap.connection_index}]", m_head_cap.atom_type
+    )
+    m = rdmolops.AddHs(rdmolfiles.MolFromSmiles(m_smiles))
+    # Remove connected H atoms
+    monomer_atoms = np.array(m.GetAtoms())
+    A = rdmolops.GetAdjacencyMatrix(m)
+    extra_Hs = []
+    for ac in atom_caps:
+        connected_atoms = monomer_atoms[A[ac.connected_atom_index] >= 1]
+        for atom in connected_atoms:
+            if atom.GetAtomicNum() == 1:
+                extra_Hs.append(atom.GetIdx())
+    m = rdchem.EditableMol(m)
+    extra_Hs.sort(reverse=True)
+    for _i in extra_Hs:
+        m.RemoveAtom(_i)
+    m = m.GetMol()
+    m = rdchem.RWMol(m)
+    if head:
+        dummy_atom_1 = rdchem.Atom(0)  # Atomic number 0 = dummy atom
+        dummy_atom_1.SetProp("molAtomMapNumber", str(m_head_cap.connection_index))
+        m.ReplaceAtom(m_head_cap.connected_atom_index, dummy_atom_1)
     else:
-        idx1 = atom_caps[1].connected_atom_index
-        idx2 = atom_caps[1].atom_index
-        idx3 = atom_caps[0].atom_index
-        idx4 = atom_caps[0].connected_atom_index
-        indices = list(np.delete(indices, [idx1, idx2, idx3, idx4]))
-        order = [idx4, idx3] + indices + [idx2, idx1]
-    rdmolops.RenumberAtoms(m_core, [int(i) for i in order])
-    # 6. Convert the pmg Molecule to rdkit
-    pmg_mol = pymatgen_to_rdkit_with_bonds(last_monomer)
-    # 7. Match the substructure and add conformer with correct bonds.
-    match = pmg_mol.GetSubstructMatch(m_core)
-    mol_conf = rdchem.Conformer()
-    pmg_conf = pmg_mol.GetConformer()
-    for atom in m_core.GetAtoms():
-        i = atom.GetIdx()
-        mol_conf.SetAtomPosition(i, pmg_conf.GetAtomPosition(match[i]))
-    m_core.AddConformer(mol_conf)
-    # 8. Perform the constrained embedding
-    AllChem.ConstrainedEmbed(hm, m_core, useTethers=True)
-    # 9. Get the head unit match
+        dummy_atom_2 = rdchem.Atom(0)  # Atomic number 0 = dummy atom
+        dummy_atom_2.SetProp("molAtomMapNumber", str(m_tail_cap.connection_index))
+        m.ReplaceAtom(m_tail_cap.connected_atom_index, dummy_atom_2)
+    indices = np.array(list(range(m.GetNumAtoms())))
+    idx1 = atom_caps[1].connected_atom_index
+    idx2 = atom_caps[1].atom_index
+    idx3 = atom_caps[0].atom_index
+    idx4 = atom_caps[0].connected_atom_index
+    indices = list(np.delete(indices, [idx1, idx2, idx3, idx4]))
+    order = [idx4, idx3, *indices, idx2, idx1]
+    m = rdmolops.RenumberAtoms(mol=m, newOrder=[int(i) for i in order])
+    # 3. Update Head smiles to have the correct end_cap
+    hm = rdmolops.molzip(m, h)
+    # hm = rdmolops.AddHs(hm)
+    coordMap = {}
+    if head:
+        _sites = [*last_monomer.sites[1:], last_monomer.sites[0]]
+    else:
+        _sites = last_monomer.sites
+    for i, site in enumerate(_sites):
+        coordMap[i] = Geometry.Point3D(*site.coords)
+    # 9. Perform the constrained embedding
+    res = rdDistGeom.EmbedMolecule(hm, coordMap=coordMap, useRandomCoords=True)
+    assert res == 0, "The monomer embedding failed. Please file an issue to resolve"
+    # # 10. Extract the head/tail unit
     sites = []
     conf = hm.GetConformer()
-    for _i in range(h.GetNumAtoms() - 1):
+    for _i in range(m.GetNumAtoms() - 1, hm.GetNumAtoms()):
         sites.append(
             Site(coords=conf.GetAtomPosition(_i), species=hm.GetAtomWithIdx(_i).GetSymbol())
         )
@@ -371,33 +390,118 @@ def add_cap(p: Polymer, last_monomer: Molecule, head: bool = True):
     return head_mol
 
 
-def make_finite_chain(
+def build_chain(
+    monomer: Molecule,
+    dihedral_angle: list[float],
+) -> list[Molecule]:
+    """Build a polymer chain by connecting multiple monomer units.
+
+    Creates a chain of monomers by repeatedly rotating and connecting monomer
+    units with the specified dihedral angles between each pair.
+
+    Args:
+        monomer: The base monomer unit (pymatgen Molecule) to repeat in the chain.
+        dihedral_angle: List of dihedral angles (in degrees) for each connection
+            between monomers. The chain will have len(dihedral_angle) + 1 monomers.
+
+    Returns:
+        List of pymatgen Molecule objects representing each monomer in the chain,
+        positioned and oriented for connection.
+    """
+    monomer_start = monomer.copy()
+    monomer_list: list[Molecule] = [monomer.copy()]
+
+    for phi in dihedral_angle:
+        next_monomer = rotate_monomer(monomer_list[-1], monomer_start, phi)
+        monomer_list.append(next_monomer)
+
+    return monomer_list
+
+
+def build_dimer_chain(
     p: Polymer,
-    chain_length: int,
-    monomer_dihedral: float,
     dihedral_cutoff: float,
     number_conformers: int,
-    chain_dihedral: float | list[float],
+    chain_dihedrals: list[float],
+) -> list[Molecule]:
+    """Build a polymer chain for dimer-type monomers.
+
+    For dimer monomers (where both connection points attach to the same atom),
+    this function alternates between generating monomers with specific internal
+    dihedrals and connecting them with chain dihedrals.
+
+    Args:
+        p: Polymer object containing the monomer molecule.
+        dihedral_cutoff: Maximum deviation (in degrees) from target dihedral
+            for conformer selection during monomer generation.
+        number_conformers: Number of conformers to generate for each monomer.
+        chain_dihedrals: List of dihedral angles alternating between monomer
+            internal dihedrals (even indices) and chain connection dihedrals
+            (odd indices). Expected to have even length.
+
+    Returns:
+        List of pymatgen Molecule objects representing each monomer in the chain,
+        positioned and oriented for connection.
+    """
+    monomer_dihedrals = chain_dihedrals[::2]
+    chain_dihedrals = chain_dihedrals[1::2]
+    C = []
+    monomers = [
+        generate_monomer(p.monomer, phi, dihedral_cutoff, number_conformers)[0]
+        for phi in monomer_dihedrals
+    ]
+    C.append(monomers.pop(0))
+    for next_monomer, phi in zip(monomers, chain_dihedrals, strict=False):
+        M = rotate_monomer(C[-1], next_monomer, phi)
+        C.append(M)
+    return C
+
+
+def make_finite_chain(
+    p: Polymer,
+    dihedrals: list[float],
+    dihedral_cutoff: float = 10,
+    number_conformers: int = 100,
+    monomer_dihedral: float | None = None,
 ) -> Molecule:
+    """Construct a complete finite polymer chain with head and tail caps.
+
+    Generates a full polymer chain starting from a monomer, building the chain
+    with specified dihedral angles, and adding head and tail cap groups.
+    Handles both regular monomers and dimer-type monomers automatically.
+
+    Args:
+        p: Polymer object containing monomer, head, and tail cap molecules.
+        dihedrals: List of dihedral angles (in degrees) for connections between
+            monomers. For dimer monomers, this alternates between monomer internal
+            dihedrals and chain dihedrals.
+        dihedral_cutoff: Maximum deviation (in degrees) from target dihedral
+            for conformer selection during monomer generation.
+        number_conformers: Number of conformers to generate and optimize for
+            each monomer unit.
+        monomer_dihedral: Optional target dihedral angle (in degrees) for the
+            first monomer's internal dihedral. If None, uses the lowest energy
+            conformer without dihedral constraints.
+
+    Returns:
+        A complete pymatgen Molecule object representing the full polymer chain
+        including head cap, all monomer units, and tail cap.
+    """
     M, D = generate_monomer(p.monomer, monomer_dihedral, dihedral_cutoff, number_conformers)
-    C = build_chain(M, chain_dihedral, D, chain_length)
+
+    if not D:
+        C = build_chain(M, dihedrals)
+    else:
+        C = build_dimer_chain(p, dihedral_cutoff, number_conformers, dihedrals)
 
     # Add head and tail groups
-    # if D:
-    #     # Dimer case: pass first two monomers for head, last two for tail
     H = add_cap(p, C[0], head=True)
-    #     T = add_tail(p.tail, [C[-1], C[-2]], tail_dihedral, D)
-    # else:
-    #     # Non-dimer case: pass single monomers
-    #     H = add_head(p.head, C[0], head_dihedral, D)
     T = add_cap(p, C[-1], head=False)
     # Assemble the full chain
     # Head minus last atom (connection point)
     _c = H.to_ase_atoms()
-    # Add all middle monomers (without first and last connection points)
     for mer in C:
         _c += mer.to_ase_atoms()[1:-1]
-    # Tail minus last atom (connection point)
     _c += T.to_ase_atoms()
-
     return Molecule.from_ase_atoms(_c)
+    # return [H] + C + [T]

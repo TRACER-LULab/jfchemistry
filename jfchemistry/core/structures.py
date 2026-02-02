@@ -100,6 +100,7 @@ class Polymer(BaseModel):
     @field_validator("monomer", "head", "tail", mode="after")
     @classmethod
     def standardize_molecule(cls, mol: Optional[RDMolMolecule]) -> Optional[RDMolMolecule]:
+        """Standardize a molecule."""
         if mol is None:
             return None
 

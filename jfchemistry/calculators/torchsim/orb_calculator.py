@@ -37,17 +37,17 @@ class OrbProperties(Properties):
 
 @dataclass
 class OrbCalculator(TorchSimCalculator, MachineLearnedInteratomicPotentialCalculator, MSONable):
-    """Orb TorchSim Calculator.
+    """Orb Calculator.
 
     Attributes:
-        name: Name of the calculator (default: "Orb TorchSim Calculator").
+        name: Name of the calculator (default: "Orb Calculator").
         model: The Orb model to use (default: "orb_v3_conservative_omol").
         device: The device to use for the model (default: "cpu").
         conservative: Whether to use the conservative model (default: True).
         precision: The precision to use for the model (default: "float32-high").
     """
 
-    name: str = "Orb TorchSim Calculator"
+    name: str = "Orb Calculator"
     model: Literal[
         "orb_v3_conservative_omol",
         "orb_v3_direct_omol",

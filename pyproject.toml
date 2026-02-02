@@ -13,7 +13,6 @@ dependencies = [
     "icecream>=2.1.8,<3",
     "orca-pi>=1.0.1",
     "fireworks>=2.0.6,<3",
-    # "molbar@git+https://git.rwth-aachen.de/bannwarthlab/molbar.git@dev",
     "prism-pruner",
     "periodictable>=2.0.2,<3",
     "fairchem-core>=2.11.0,<3",

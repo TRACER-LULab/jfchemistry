@@ -11,12 +11,14 @@ from typing import Any, Literal, Optional, cast
 
 from pymatgen.core.structure import Molecule, Structure
 
-from jfchemistry.core.makers.single_maker import SingleJFChemistryMaker
+from jfchemistry.core.makers import PymatGenMaker
 from jfchemistry.core.properties import Properties
 from jfchemistry.packing.base import StructurePacking
 
 
 class PackmolProperties(Properties):
+    """Properties for Packmol packing."""
+
     packing_mode: Literal["box", "fixed"]
     tolerance: float
     num_atoms: int
@@ -28,8 +30,8 @@ class PackmolProperties(Properties):
 
 
 @dataclass
-class PackmolPacking[InputType: Molecule | Structure, OutputType: Molecule | Structure](
-    SingleJFChemistryMaker[InputType, OutputType], StructurePacking
+class PackmolPacking[InputType: list[Molecule], OutputType: Structure](
+    PymatGenMaker[InputType, OutputType], StructurePacking
 ):
     """Pack molecules using Packmol.
 
@@ -56,7 +58,7 @@ class PackmolPacking[InputType: Molecule | Structure, OutputType: Molecule | Str
     """
 
     name: str = "Packmol Packing"
-    packing_mode: Literal["box", "fixed"] = field(
+    packing_mode: Literal["box"] = field(
         default="box",
         metadata={"description": "the packing strategy to use"},
     )
@@ -68,8 +70,8 @@ class PackmolPacking[InputType: Molecule | Structure, OutputType: Molecule | Str
         default=None,
         metadata={"description": "target density in g/cm^3 (alternative to box_dimensions)"},
     )
-    num_molecules: Optional[int] = field(
-        default=None,
+    num_molecules: list[int] | int = field(
+        default=1,
         metadata={"description": "number of molecule copies to pack"},
     )
     fixed_positions: Optional[list[tuple[float, float, float]]] = field(
@@ -85,14 +87,21 @@ class PackmolPacking[InputType: Molecule | Structure, OutputType: Molecule | Str
         metadata={"description": "path to packmol executable"},
     )
     _filetype: str = "xyz"
+    _structure_prefix: str = "structure"
+    _ensemble: Literal[True] = True
+
+    def __post_init__(self):
+        """Post-initialization hook to make the output model."""
+        if isinstance(self.num_molecules, int):
+            self.num_molecules = [self.num_molecules]
 
     def _calculate_box_dimensions_from_density(
-        self, structure: Molecule
+        self, structures: InputType
     ) -> tuple[float, float, float]:
         """Calculate box dimensions from target density.
 
         Args:
-            structure: Input molecule structure.
+            structures: Input molecule structure.
 
         Returns:
             Box dimensions as (x, y, z) tuple in Angstroms for a cubic box.
@@ -107,13 +116,16 @@ class PackmolPacking[InputType: Molecule | Structure, OutputType: Molecule | Str
 
         # Avogadro's number
         AVOGADRO = 6.02214076e23  # mol^-1
-
-        # Calculate molecular weight in g/mol
-        molecular_weight = structure.composition.weight.real  # g/mol
-
-        # Calculate total mass in grams
-        total_mass = (self.num_molecules * molecular_weight) / AVOGADRO  # g
-
+        total_mass = 0.0
+        if isinstance(self.num_molecules, list):
+            for num_molecule, structure in zip(self.num_molecules, structures, strict=True):
+                # Calculate molecular weight in g/mol
+                molecular_weight = structure.composition.weight.real  # g/mol
+                total_mass += (num_molecule * molecular_weight) / AVOGADRO  # g
+        else:
+            # Calculate molecular weight in g/mol
+            molecular_weight = structures[0].composition.weight.real  # g/mol
+            total_mass = (self.num_molecules * molecular_weight) / AVOGADRO  # g
         # Calculate volume in cm^3
         volume_cm3 = total_mass / self.density  # cm^3
 
@@ -126,9 +138,7 @@ class PackmolPacking[InputType: Molecule | Structure, OutputType: Molecule | Str
         self.box_dimensions = (side_length, side_length, side_length)
         return self.box_dimensions
 
-    def _write_packmol_input(
-        self, input_mol_file: str, output_file: str, structure: Molecule
-    ) -> str:
+    def _write_packmol_input(self, output_file: str, structure: InputType) -> str:
         """Generate packmol input file.
 
         Args:
@@ -154,7 +164,6 @@ class PackmolPacking[InputType: Molecule | Structure, OutputType: Molecule | Str
 
         input_file = "packmol_input.inp"
         # Convert to absolute paths for packmol
-        abs_input_mol_file = os.path.abspath(input_mol_file)
         abs_output_file = os.path.abspath(output_file)
 
         with open(input_file, "w") as f:
@@ -168,26 +177,22 @@ class PackmolPacking[InputType: Molecule | Structure, OutputType: Molecule | Str
                     raise ValueError("box_dimensions is required for box packing mode")
                 if self.num_molecules is None:
                     raise ValueError("num_molecules is required for box packing mode")
-                f.write(f"structure {abs_input_mol_file}\n")
-                f.write(f"  number {self.num_molecules}\n")
-                f.write(
-                    f"  inside box 0. 0. 0. {self.box_dimensions[0]} \
-                        {self.box_dimensions[1]} {self.box_dimensions[2]}\n"
-                )
-                f.write("end structure\n")
-            elif self.packing_mode == "fixed":
-                if self.fixed_positions is None:
-                    raise ValueError("fixed_positions is required for fixed packing mode")
-                if len(self.fixed_positions) == 0:
-                    raise ValueError("fixed_positions list cannot be empty")
-                for i, pos in enumerate(self.fixed_positions):
-                    f.write(f"structure {abs_input_mol_file}\n")
-                    f.write("  number 1\n")
-                    f.write(f"  fixed {pos[0]} {pos[1]} {pos[2]} 0. 0. 0.\n")
+                for i, molecule in enumerate(structure):
+                    if isinstance(self.num_molecules, list):
+                        num_molecule = self.num_molecules[i]
+                    else:
+                        num_molecule = self.num_molecules
+                    input_mol_file = os.path.abspath(
+                        f"{self._structure_prefix}_{i}.{self._filetype}"
+                    )
+                    molecule.to(filename=input_mol_file, fmt=self._filetype)
+                    f.write(f"structure {input_mol_file}\n")
+                    f.write(f"  number {num_molecule}\n")
+                    f.write(
+                        f"  inside box 0. 0. 0. {self.box_dimensions[0]} \
+                            {self.box_dimensions[1]} {self.box_dimensions[2]}\n"
+                    )
                     f.write("end structure\n")
-                    if i < len(self.fixed_positions) - 1:
-                        f.write("\n")
-
         return input_file
 
     def _run_packmol(self, input_file: str) -> None:
@@ -305,12 +310,13 @@ class PackmolPacking[InputType: Molecule | Structure, OutputType: Molecule | Str
             return cast("OutputType", Structure.from_file(output_file))
 
     def _operation(
-        self, structure: InputType, **kwargs
+        self, input: InputType, **kwargs
     ) -> tuple[OutputType | list[OutputType], Properties | list[Properties]]:
         """Pack a structure using Packmol.
 
         Args:
-            structure: The molecular structure to pack.
+            input: The molecular structure to pack.
+            **kwargs: Additional kwargs to pass to the operation.
 
         Returns:
             A tuple containing the packed structure and properties.
@@ -321,26 +327,21 @@ class PackmolPacking[InputType: Molecule | Structure, OutputType: Molecule | Str
         """
         # Validate mode-specific parameters
         # Validation will be done in _write_packmol_input
-
-        # Write input molecule file
-        input_mol_file = f"input_molecule.{self._filetype}"
-        # assert isinstance(structure, Structure), "structure must be a molecule for packing"
-        structure.to(filename=input_mol_file, fmt=self._filetype)
-
+        print(input)
         # Generate packmol output filename
-        output_file = f"packed_structure.{self._filetype}"
+        output_file = os.path.abspath(f"packed_structure.{self._filetype}")
 
         # Get box dimensions (either specified or calculated from density)
         if self.packing_mode == "box":
             if self.density is not None:
-                box_dims = self._calculate_box_dimensions_from_density(structure)
+                box_dims = self._calculate_box_dimensions_from_density(input)
             else:
                 box_dims = self.box_dimensions
         else:
             box_dims = None
 
         # Write packmol input file (this may calculate box_dimensions from density)
-        packmol_input = self._write_packmol_input(input_mol_file, output_file, structure)
+        packmol_input = self._write_packmol_input(output_file, input)
 
         # Run packmol
         self._run_packmol(packmol_input)

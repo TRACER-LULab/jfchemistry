@@ -46,16 +46,16 @@ class FairChemProperties(Properties):
 class FairChemCalculator(
     TorchSimCalculator, MachineLearnedInteratomicPotentialCalculator, MSONable
 ):
-    """FairChem TorchSim Calculator.
+    """FairChem Calculator.
 
     Attributes:
-        name: Name of the calculator (default: "FairChem TorchSim Calculator").
+        name: Name of the calculator (default: "FairChem Calculator").
         model: The FairChem model to use (default: "uma-s-1").
         task: The task to use (default: "omol").
         compute_stress: Whether to compute the stress (default: False).
     """
 
-    name: str = "FairChem TorchSim Calculator"
+    name: str = "FairChem Calculator"
     model: model_types = field(
         default="uma-s-1", metadata={"description": "The FairChem model to use"}
     )

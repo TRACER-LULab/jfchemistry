@@ -67,7 +67,7 @@ def _quantity_to_dict(qty: Any) -> Any:
             import numpy as np
 
             if isinstance(qty, np.ndarray):
-                return _quantity_to_dict(qty.tolist())  # type: ignore[attr-defined]
+                return _quantity_to_dict(qty.tolist())
         except ImportError:
             pass
         return qty

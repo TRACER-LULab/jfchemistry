@@ -10,14 +10,14 @@ from pyscf import gto
 # Import fully typed Literal definitions
 from jfchemistry.calculators.pyscfgpu import PySCFGPUCalculator
 from jfchemistry.calculators.pyscfgpu.pyscfgpu_calculator import PySCFProperties
-from jfchemistry.core.makers.single_maker import SingleJFChemistryMaker
+from jfchemistry.core.makers import PymatGenMaker
 from jfchemistry.core.properties import Properties
 from jfchemistry.single_point.base import SinglePointCalculation
 
 
 @dataclass
 class PySCFGPUSinglePoint[InputType: Molecule, OutputType: Molecule](
-    PySCFGPUCalculator, SingleJFChemistryMaker[InputType, OutputType], SinglePointCalculation
+    PySCFGPUCalculator, PymatGenMaker[InputType, OutputType], SinglePointCalculation
 ):
     """PySCF GPU Calculator with full type support.
 
@@ -36,11 +36,11 @@ class PySCFGPUSinglePoint[InputType: Molecule, OutputType: Molecule](
     _filename = "input.xyz"
 
     def _operation(
-        self, structure: InputType, **kwargs
+        self, input: InputType, **kwargs
     ) -> tuple[OutputType | list[OutputType], Properties | list[Properties]]:
         """Calculate the single point energy of a molecule using PySCF GPU."""
         # Write to XYZ file
-        structure.to(self._filename, fmt="xyz")
+        input.to(self._filename, fmt="xyz")
         # Make the calculator
         mol = gto.Mole()
         mol.atom = self._filename
@@ -50,4 +50,4 @@ class PySCFGPUSinglePoint[InputType: Molecule, OutputType: Molecule](
         mf = mf.newton()
         mf.kernel()
         properties = self._get_properties(mf)
-        return cast("OutputType", structure), properties
+        return cast("OutputType", input), properties

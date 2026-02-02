@@ -12,14 +12,14 @@ from opi.input.structures.structure import Structure
 from pymatgen.core.structure import Molecule
 
 from jfchemistry.calculators.orca.orca_calculator import ORCACalculator, ORCAProperties
-from jfchemistry.core.makers.base_maker import JFChemistryBaseMaker
+from jfchemistry.core.makers import PymatGenMaker
 from jfchemistry.core.properties import Properties
 from jfchemistry.single_point.base import SinglePointCalculation
 
 
 @dataclass
 class ORCASinglePointCalculator[InputType: Molecule, OutputType: Molecule](
-    SinglePointCalculation, JFChemistryBaseMaker[InputType, OutputType], ORCACalculator
+    SinglePointCalculation, PymatGenMaker[InputType, OutputType], ORCACalculator
 ):
     """Calculate the single point energy of a structure using ORCA DFT calculator.
 
@@ -35,11 +35,11 @@ class ORCASinglePointCalculator[InputType: Molecule, OutputType: Molecule](
     _properties_model: type[ORCAProperties] = ORCAProperties
 
     def _operation(
-        self, structure: InputType, **kwargs
+        self, input: InputType, **kwargs
     ) -> tuple[OutputType | list[OutputType], Properties | list[Properties]]:
         """Calculate the single point energy of a molecule using ORCA."""
         # Write to XYZ file
-        structure.to("input.xyz", fmt="xyz")
+        input.to("input.xyz", fmt="xyz")
         # Get the default calculator SK_list
         sk_list = super()._set_keywords()
         # Make the calculator
@@ -53,4 +53,4 @@ class ORCASinglePointCalculator[InputType: Molecule, OutputType: Molecule](
         # Parse the output
         output = calc.get_output()
         properties = super()._parse_output(output)
-        return cast("OutputType", structure), properties
+        return cast("OutputType", input), properties
