@@ -105,9 +105,7 @@ class TorchSimOptimizer[InputType: Molecule | Structure, OutputType: Molecule | 
         model = self.calculator._get_model()
         input.to_ase_atoms().write("initial_structure.xyz")
         final_state = ts.optimize(
-            system=input.to_ase_atoms(),
-            model=model,
-            optimizer=optimizer,
+            system=input.to_ase_atoms(), model=model, optimizer=optimizer, pbar=True
         )
         final_atoms = final_state.to_atoms()[0]
         final_structure = type(input).from_ase_atoms(final_atoms)
