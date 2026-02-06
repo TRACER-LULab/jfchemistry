@@ -4,28 +4,28 @@ from jobflow.core.flow import Flow
 from jobflow.managers.local import run_locally
 from numpy.random import choice
 
-from jfchemistry.calculators.torchsim.orb_calculator import OrbCalculator
+from jfchemistry.calculators.ase import AimNet2Calculator
 from jfchemistry.inputs import PolymerInput
-from jfchemistry.molecular_dynamics.torchsim import (
-    TorchSimMolecularDynamicsNPTNoseHoover,
-    TorchSimMolecularDynamicsNVTNoseHoover,
+from jfchemistry.molecular_dynamics.ase import (
+    ASEMolecularDynamicsNPTBerendsen,
+    ASEMolecularDynamicsNVTBussi,
 )
-from jfchemistry.optimizers import TorchSimOptimizer
+from jfchemistry.optimizers import ASEOptimizer
 from jfchemistry.packing.packmol import PackmolPacking
 from jfchemistry.polymers import GenerateFinitePolymerChain
 
-chain_length = 40
-number_chains = 40
+chain_length = 50
+number_chains = 5
 finite_chain_jobs = []
 finite_chain_structures = []
-calculator = OrbCalculator(model="orb_v3_direct_inf_omat", device="cuda", compile=True)
+calculator = AimNet2Calculator(model="aimnet2_2025")
 
 # BEGIN WORKFLOW
 
 polymer_job = PolymerInput().make(head="C[*:1]", monomer="[*:1]C[*:2]", tail="C[*:2]")
 
-for _ in range(number_chains):
-    rotation_angles = choice([180, 240, -240], size=chain_length, p=[0.75, 0.125, 0.125]).tolist()
+for _ in range(1):
+    rotation_angles = choice([180, 240, -240], size=chain_length, p=[0.6, 0.2, 0.2]).tolist()
     job = GenerateFinitePolymerChain(dihedral_angles=rotation_angles, monomer_dihedral=0.0).make(
         polymer_job.output.structure
     )
@@ -35,296 +35,314 @@ for _ in range(number_chains):
 pack_job = PackmolPacking(
     packing_mode="box",
     num_molecules=[number_chains],
-    density=0.3,  # g/cm^3
+    density=0.3,
 ).make(finite_chain_structures)
 
-opt_job = TorchSimOptimizer(calculator=calculator).make(pack_job.output.structure)
+opt_job = ASEOptimizer(calculator=calculator).make(pack_job.output.structure)
 
 ####### CYCLE 1 #######
 
-nvt_job_1 = TorchSimMolecularDynamicsNVTNoseHoover(
+nvt_job_1 = ASEMolecularDynamicsNPTBerendsen(
     temperature=600.0,
-    duration=20_000,
+    duration=50_000,
+    timestep=1.0,
+    log_interval=500.0,
+    ttime=50.0,
+    ptime=500.0,
     calculator=calculator,
-    timestep=0.5,
     log_temperature=True,
     log_potential_energy=True,
-    log_interval=1_000.0,
     logfile="nvt_1",
-    tau=50.0,
+    log_trajectory=True,
 ).make(opt_job.output.structure)
 
-nvt_job_2 = TorchSimMolecularDynamicsNVTNoseHoover(
+nvt_job_2 = ASEMolecularDynamicsNVTBussi(
     temperature=300.0,
     duration=50_000,
     calculator=calculator,
-    timestep=0.5,
+    timestep=1.0,
     log_temperature=True,
     log_potential_energy=True,
+    log_trajectory=True,
     log_interval=1_000.0,
     logfile="nvt_2",
-    tau=50.0,
+    ttime=50.0,
 ).make(nvt_job_1.output.structure)
 
-npt_job_3 = TorchSimMolecularDynamicsNPTNoseHoover(
+npt_job_3 = ASEMolecularDynamicsNPTBerendsen(
     temperature=300.0,
     external_pressure=1.0,
-    duration=20_000,
+    duration=50_000,
     calculator=calculator,
-    timestep=0.5,
+    timestep=1.0,
     log_temperature=True,
     log_potential_energy=True,
     log_interval=1_000.0,
+    log_trajectory=True,
     log_volume=False,
     logfile="npt_3",
-    b_tau=500.0,
-    t_tau=50.0,
+    ttime=50.0,
+    ptime=500.0,
 ).make(nvt_job_2.output.structure)
 
 # ####### CYCLE 2 #######
 
-nvt_job_4 = TorchSimMolecularDynamicsNVTNoseHoover(
+nvt_job_4 = ASEMolecularDynamicsNVTBussi(
     temperature=600.0,
     duration=50_000,
     calculator=calculator,
-    timestep=0.5,
+    timestep=1.0,
     log_temperature=True,
     log_potential_energy=True,
     log_interval=1_000.0,
     logfile="nvt_4",
-    tau=50.0,
+    log_trajectory=True,
+    ttime=50.0,
 ).make(npt_job_3.output.structure)
 
-nvt_job_5 = TorchSimMolecularDynamicsNVTNoseHoover(
+nvt_job_5 = ASEMolecularDynamicsNVTBussi(
     temperature=300.0,
     duration=100_000,
     calculator=calculator,
-    timestep=0.5,
+    timestep=1.0,
     log_temperature=True,
+    log_trajectory=True,
     log_potential_energy=True,
     log_interval=1_000.0,
     logfile="nvt_5",
-    tau=50.0,
+    ttime=50.0,
 ).make(nvt_job_4.output.structure)
 
-npt_job_6 = TorchSimMolecularDynamicsNPTNoseHoover(
+npt_job_6 = ASEMolecularDynamicsNPTBerendsen(
     temperature=300.0,
     external_pressure=30_000.0,
     duration=50_000,
     calculator=calculator,
-    timestep=0.5,
+    timestep=1.0,
     log_temperature=True,
+    log_trajectory=True,
     log_potential_energy=True,
     log_interval=1_000.0,
     log_volume=False,
     logfile="npt_6",
-    b_tau=500.0,
-    t_tau=50.0,
+    ttime=50.0,
+    ptime=500.0,
 ).make(nvt_job_5.output.structure)
 
 # ####### CYCLE 3 #######
 
-nvt_job_7 = TorchSimMolecularDynamicsNVTNoseHoover(
+nvt_job_7 = ASEMolecularDynamicsNVTBussi(
     temperature=600.0,
     duration=50_000,
     calculator=calculator,
-    timestep=0.5,
+    timestep=1.0,
     log_temperature=True,
+    log_trajectory=True,
     log_potential_energy=True,
     log_interval=1_000.0,
     logfile="nvt_7",
-    tau=50.0,
+    ttime=50.0,
 ).make(npt_job_6.output.structure)
 
-nvt_job_8 = TorchSimMolecularDynamicsNVTNoseHoover(
+nvt_job_8 = ASEMolecularDynamicsNVTBussi(
     temperature=300.0,
     duration=100_000,
     calculator=calculator,
-    timestep=0.5,
+    timestep=1.0,
     log_temperature=True,
+    log_trajectory=True,
     log_potential_energy=True,
     log_interval=1_000.0,
     logfile="nvt_8",
-    tau=50.0,
+    ttime=50.0,
 ).make(nvt_job_7.output.structure)
 
-npt_job_9 = TorchSimMolecularDynamicsNPTNoseHoover(
+npt_job_9 = ASEMolecularDynamicsNPTBerendsen(
     temperature=300.0,
     external_pressure=50_000,
     duration=50_000,
     calculator=calculator,
-    timestep=0.5,
+    timestep=1.0,
     log_temperature=True,
+    log_trajectory=True,
     log_potential_energy=True,
     log_interval=1_000.0,
     log_volume=False,
     logfile="npt_9",
-    b_tau=500.0,
-    t_tau=50.0,
+    ttime=50.0,
+    ptime=500.0,
 ).make(nvt_job_8.output.structure)
 
 # ####### CYCLE 4 #######
 
-nvt_job_10 = TorchSimMolecularDynamicsNVTNoseHoover(
+nvt_job_10 = ASEMolecularDynamicsNVTBussi(
     temperature=600.0,
     duration=500_000,
     calculator=calculator,
-    timestep=0.5,
+    timestep=1.0,
     log_temperature=True,
+    log_trajectory=True,
     log_potential_energy=True,
     log_interval=1_000.0,
     logfile="nvt_10",
-    tau=50.0,
+    ttime=50.0,
 ).make(npt_job_9.output.structure)
 
-nvt_job_11 = TorchSimMolecularDynamicsNVTNoseHoover(
+nvt_job_11 = ASEMolecularDynamicsNVTBussi(
     temperature=300.0,
     duration=100_000,
     calculator=calculator,
-    timestep=0.5,
+    timestep=1.0,
     log_temperature=True,
     log_potential_energy=True,
     log_interval=1_000.0,
     logfile="nvt_11",
-    tau=50.0,
+    ttime=50.0,
 ).make(nvt_job_10.output.structure)
 
-npt_job_12 = TorchSimMolecularDynamicsNPTNoseHoover(
+npt_job_12 = ASEMolecularDynamicsNPTBerendsen(
     temperature=300.0,
     external_pressure=25_000,
     duration=5_000,
     calculator=calculator,
-    timestep=0.5,
+    timestep=1.0,
     log_temperature=True,
+    log_trajectory=True,
     log_potential_energy=True,
     log_interval=1_000.0,
     log_volume=False,
     logfile="npt_12",
-    b_tau=500.0,
-    t_tau=50.0,
+    ttime=50.0,
+    ptime=500.0,
 ).make(nvt_job_11.output.structure)
 
 # ####### CYCLE 5 #######
 
-nvt_job_13 = TorchSimMolecularDynamicsNVTNoseHoover(
+nvt_job_13 = ASEMolecularDynamicsNVTBussi(
     temperature=600.0,
     duration=500_000,
     calculator=calculator,
-    timestep=0.5,
+    timestep=1.0,
     log_temperature=True,
     log_potential_energy=True,
     log_interval=1_000.0,
     logfile="nvt_13",
-    tau=50.0,
+    ttime=50.0,
 ).make(npt_job_12.output.structure)
 
-nvt_job_14 = TorchSimMolecularDynamicsNVTNoseHoover(
+nvt_job_14 = ASEMolecularDynamicsNVTBussi(
     temperature=300.0,
     duration=10_000,
     calculator=calculator,
-    timestep=0.5,
+    timestep=1.0,
     log_temperature=True,
+    log_trajectory=True,
     log_potential_energy=True,
     log_interval=1_000.0,
     logfile="nvt_14",
-    tau=50.0,
+    ttime=50.0,
 ).make(nvt_job_13.output.structure)
 
-npt_job_15 = TorchSimMolecularDynamicsNPTNoseHoover(
+npt_job_15 = ASEMolecularDynamicsNPTBerendsen(
     temperature=300.0,
     external_pressure=5_000,
     calculator=calculator,
     duration=5_000,
-    timestep=0.5,
+    timestep=1.0,
     log_temperature=True,
     log_potential_energy=True,
     log_interval=1_000.0,
     log_volume=False,
     logfile="npt_15",
-    b_tau=500.0,
-    t_tau=50.0,
+    ttime=50.0,
+    ptime=500.0,
 ).make(nvt_job_14.output.structure)
 
 # ####### CYCLE 6 #######
 
-nvt_job_16 = TorchSimMolecularDynamicsNVTNoseHoover(
+nvt_job_16 = ASEMolecularDynamicsNVTBussi(
     temperature=600.0,
     duration=500_000,
     calculator=calculator,
-    timestep=0.5,
+    timestep=1.0,
     log_temperature=True,
+    log_trajectory=True,
     log_potential_energy=True,
     log_interval=1_000.0,
     logfile="nvt_16",
-    tau=50.0,
+    ttime=50.0,
 ).make(npt_job_15.output.structure)
 
-nvt_job_17 = TorchSimMolecularDynamicsNVTNoseHoover(
+nvt_job_17 = ASEMolecularDynamicsNVTBussi(
     temperature=300.0,
     duration=10_000,
     calculator=calculator,
-    timestep=0.5,
+    timestep=1.0,
     log_temperature=True,
+    log_trajectory=True,
     log_potential_energy=True,
     log_interval=1_000.0,
     logfile="nvt_17",
-    tau=50.0,
+    ttime=50.0,
 ).make(nvt_job_16.output.structure)
 
-npt_job_18 = TorchSimMolecularDynamicsNPTNoseHoover(
+npt_job_18 = ASEMolecularDynamicsNPTBerendsen(
     temperature=300.0,
     external_pressure=500,
     duration=5_000,
     calculator=calculator,
-    timestep=0.5,
+    timestep=1.0,
     log_temperature=True,
+    log_trajectory=True,
     log_potential_energy=True,
     log_interval=1_000.0,
     log_volume=False,
     logfile="npt_18",
-    b_tau=500.0,
-    t_tau=50.0,
+    ttime=50.0,
+    ptime=500.0,
 ).make(nvt_job_17.output.structure)
 
 # ####### CYCLE 7 #######
 
-nvt_job_19 = TorchSimMolecularDynamicsNVTNoseHoover(
+nvt_job_19 = ASEMolecularDynamicsNVTBussi(
     temperature=600.0,
     duration=1_000_000,
     calculator=calculator,
-    timestep=0.5,
+    timestep=1.0,
     log_temperature=True,
     log_potential_energy=True,
     log_interval=1_000.0,
     logfile="nvt_19",
-    tau=50.0,
+    ttime=50.0,
 ).make(npt_job_18.output.structure)
 
-nvt_job_20 = TorchSimMolecularDynamicsNVTNoseHoover(
+nvt_job_20 = ASEMolecularDynamicsNVTBussi(
     temperature=300.0,
     duration=10_000,
     calculator=calculator,
-    timestep=0.5,
+    timestep=1.0,
     log_temperature=True,
+    log_trajectory=True,
     log_potential_energy=True,
     log_interval=1_000.0,
     logfile="nvt_20",
-    tau=50.0,
+    ttime=50.0,
 ).make(nvt_job_19.output.structure)
 
-npt_job_21 = TorchSimMolecularDynamicsNPTNoseHoover(
+npt_job_21 = ASEMolecularDynamicsNPTBerendsen(
     temperature=300.0,
     external_pressure=1,
     duration=800_000,
     calculator=calculator,
-    timestep=0.5,
+    timestep=1.0,
     log_temperature=True,
+    log_trajectory=True,
     log_potential_energy=True,
     log_interval=1_000.0,
     log_volume=False,
     logfile="npt_21",
-    b_tau=500.0,
-    t_tau=50.0,
+    ttime=50.0,
+    ptime=500.0,
 ).make(nvt_job_20.output.structure)
 
 flow = Flow(
