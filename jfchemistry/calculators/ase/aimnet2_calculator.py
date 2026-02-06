@@ -69,7 +69,7 @@ class AimNet2Calculator(ASECalculator, MachineLearnedInteratomicPotentialCalcula
     """
 
     name: str = "AimNet2 Calculator"
-    model: str = field(default="aimnet2", metadata={"description": "AimNet2 model to use"})
+    model: str = field(default="aimnet2_2025", metadata={"description": "AimNet2 model to use"})
     _properties_model: type[AimNet2Properties] = AimNet2Properties
 
     def _set_calculator(self, atoms: Atoms, charge: float = 0, spin_multiplicity: int = 1) -> Atoms:

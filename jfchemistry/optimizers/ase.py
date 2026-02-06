@@ -147,9 +147,7 @@ class ASEOptimizer[InputType: Structure | Molecule, OutputType: Structure | Mole
                 opt_atoms = opt_atoms.atoms
 
         properties = self.calculator._get_properties(opt_atoms)
-        from ase import io
 
-        io.write("opt.cif", opt_atoms)
         if isinstance(input, Structure):
             opt_structure = Structure.from_ase_atoms(opt_atoms)
         elif isinstance(input, Molecule):

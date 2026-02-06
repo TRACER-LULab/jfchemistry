@@ -1,9 +1,9 @@
 """Example workflow for calculating partition coefficients."""
 
 # from fireworks import LaunchPad
-from fireworks import LaunchPad
+
 from jobflow.core.flow import Flow
-from jobflow.managers.fireworks import flow_to_workflow
+from jobflow.managers.local import run_locally
 
 # from jobflow.managers.fireworks import flow_to_workflow
 from jfchemistry.generation import RDKitGeneration
@@ -29,10 +29,4 @@ flow = Flow(
     name="Partition Coefficient - TFA - Octanol/Water",
 )
 
-workflow = flow_to_workflow(flow)
-launchpad = LaunchPad.from_file("my_launchpad.yaml")
-
-launchpad.add_wf(workflow)
-
-
-# response = run_locally(flow)
+response = run_locally(flow)
