@@ -1,4 +1,4 @@
-"""Base Class for ORCA DFT Calculations."""
+"""Single point energy calculations using PySCF GPU."""
 
 from dataclasses import dataclass
 from typing import cast
@@ -7,7 +7,7 @@ from pymatgen.core import Molecule
 from pyscf import gto
 
 # Import fully typed Literal definitions
-from jfchemistry.calculators.pyscfgpu import PySCFGPUCalculator
+from jfchemistry.calculators.pyscfgpu import PySCFCalculator
 from jfchemistry.calculators.pyscfgpu.pyscfgpu_calculator import PySCFProperties
 from jfchemistry.core.makers import PymatGenMaker
 from jfchemistry.core.properties import Properties
@@ -16,7 +16,7 @@ from jfchemistry.single_point.base import SinglePointCalculation
 
 @dataclass
 class PySCFGPUSinglePoint[InputType: Molecule, OutputType: Molecule](
-    PySCFGPUCalculator, PymatGenMaker[InputType, OutputType], SinglePointCalculation
+    PySCFCalculator, PymatGenMaker[InputType, OutputType], SinglePointCalculation
 ):
     """PySCF GPU Calculator with full type support.
 

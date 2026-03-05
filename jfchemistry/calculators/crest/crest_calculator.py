@@ -12,6 +12,7 @@ import tomli_w
 from monty.json import MSONable
 
 from jfchemistry.calculators.base import Calculator
+from jfchemistry.core.solvation import ImplicitSolventConfig, to_crest
 
 type SolvationType = Union[
     tuple[
@@ -75,22 +76,36 @@ class CRESTCalculator(Calculator, MSONable):
     solvation: Optional[SolvationType] = field(
         default=None, metadata={"description": "The solvation type and solvent selection"}
     )  # CLI
+    implicit_solvent: Optional[ImplicitSolventConfig] = field(
+        default=None,
+        metadata={"description": "Unified implicit-solvent configuration override."},
+    )
     # CREGEN PARAMETERS
     # ------- TOML ------
     energy_window: Optional[float] = field(
-        default=6.0, metadata={"description": "The energy window to use [kcal/mol]"}
+        default=6.0,
+        metadata={"description": "The energy window to use [kcal/mol]", "unit": "kcal/mol"},
     )
     cartesian_rmsd_threshold: Optional[float] = field(
         default=0.125,
-        metadata={"description": "The Cartesian RMSD threshold for geometry optimization [Å]"},
+        metadata={
+            "description": "The Cartesian RMSD threshold for geometry optimization [Å]",
+            "unit": "Å",
+        },
     )
     energy_threshold: Optional[float] = field(
         default=0.05,
-        metadata={"description": "The energy threshold for geometry optimization [kcal/mol]"},
+        metadata={
+            "description": "The energy threshold for geometry optimization [kcal/mol]",
+            "unit": "kcal/mol",
+        },
     )
     rotational_rms_threshold: Optional[float] = field(
         default=0.01,
-        metadata={"description": "The rotational RMSD threshold for geometry optimization [°]"},
+        metadata={
+            "description": "The rotational RMSD threshold for geometry optimization [°]",
+            "unit": "°",
+        },
     )
     preoptimization: Optional[bool] = field(
         default=True, metadata={"description": "Whether to perform preoptimization"}
@@ -101,10 +116,23 @@ class CRESTCalculator(Calculator, MSONable):
     )
 
     # INTERNAL
-    _input_dict: dict[str, Any] = field(default_factory=dict)
-    _commands: list[str | int | float] = field(default_factory=list)
+    _input_dict: dict[str, Any] = field(
+        default_factory=dict,
+        metadata={"description": "Internal CREST input dictionary (built from public options)."},
+    )
+    _commands: list[str | int | float] = field(
+        default_factory=list,
+        metadata={"description": "Internal list of command-line arguments for CREST."},
+    )
     _toml_filename: str = "crest.toml"
     _xyz_filename: str = "input.xyz"
+
+    def __post_init__(self):
+        """Apply unified implicit-solvent overrides when provided."""
+        if self.implicit_solvent is None:
+            return
+        mapped = to_crest(self.implicit_solvent)
+        self.solvation = mapped  # type: ignore[assignment]
 
     def _make_dict(self):
         """Make the TOML dictionary for the CREST input."""
